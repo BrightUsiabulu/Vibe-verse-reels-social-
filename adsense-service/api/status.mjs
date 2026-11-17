@@ -1,0 +1,2 @@
+import {reply,configured} from '../lib/adsense.mjs';
+export function GET(){return reply({service:'vibeverse-adsense-reporting',status:configured()?'configured':'setup-required',access:'admin-only',data:'real Google AdSense API'})}

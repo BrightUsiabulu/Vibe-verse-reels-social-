@@ -17,6 +17,7 @@ function liveExploreNav(){
  const side=$('.sidebarBottom');
  if(side&&!side.querySelector('[data-vv-explore-live]')){
   const a=document.createElement('a');a.href='/explore.html';a.dataset.vvExploreLive='1';a.textContent='✦ Explore public videos & photos';a.style.cssText='display:block;color:#70e4cc;text-decoration:none;font-weight:750;font-size:12px;margin:9px 0';side.prepend(a);
+  const creators=document.createElement('a');creators.href='/creators.html';creators.textContent='✦ Discover creators';creators.style.cssText=a.style.cssText;side.prepend(creators);
  }
  const settings=$('#view .settingsGrid');
  if(settings&&!settings.querySelector('[data-vv-explore-live]')){

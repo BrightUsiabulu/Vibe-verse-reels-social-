@@ -1,0 +1,84 @@
+/* VibeVerse v12.0 — verified wallet and finance controls */
+(()=>{'use strict';
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
+const ico=n=>'<svg aria-hidden="true"><use href="#i-'+({wallet:'chart','file-text':'list','banknote':'archive','send':'arrow'}[n]||n)+'"></use></svg>';
+const safe=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=x=>new Intl.NumberFormat('en-NG',{style:'currency',currency:'NGN'}).format((Number(x)||0)/100);
+const at=x=>x?new Date(x).toLocaleDateString('en-NG',{year:'numeric',month:'short',day:'numeric'}):'—';
+const valid=x=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(x||''));
+const hub=document.createElement('main');hub.id='vv12Finance';hub.className='workspace vv12-finance';hub.hidden=true;$('.shell')?.append(hub);
+let shown=false,tab='overview',client=null,clientKey='',status=null,me=null,token='',wallet=null,receipts=[],settlements=[],adjustments=[],requests=[],recipients=[],error='',refreshing=false,last=0;
+function toast(t){const x=$('#toast');if(x){x.textContent=t;x.classList.add('show');setTimeout(()=>x.classList.remove('show'),3000)}}
+function cfg(){try{const x=JSON.parse(localStorage.getItem('vv2_config')||'null');return /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(x?.url)&&/^(sb_publishable_|eyJ)/.test(x?.key)?{url:x.url.replace(/\/$/,''),key:x.key}:null}catch{return null}}
+function getClient(){const c=cfg();if(!c||!window.supabase?.createClient)return null;const key=c.url+'|'+c.key;if(!client||clientKey!==key){clientKey=key;client=window.supabase.createClient(c.url,c.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}})}return client}
+async function api(path,options={}){const r=await fetch(path,{...options,cache:'no-store'});let data={};try{data=await r.json()}catch{}if(!r.ok)throw Error(data.message||data.code||'Service is unavailable');return data}
+const payoutOn=()=>status?.withdrawalRequestStatus==='restricted_requests_enabled';
+function nav(){for(const id of ['desktopNav','mobileNav']){const bar=$('#'+id);if(!bar)continue;let b=$('[data-v12-nav]',bar);if(!b){b=document.createElement('button');b.dataset.v12Nav='1';b.innerHTML=ico('wallet')+'<span>Wallet</span>';bar.append(b)}b.classList.toggle('on',shown)}}
+function show(){shown=true;document.body.classList.remove('vv3-open','vv4-open','earn-open','v8-open','v9-open','vv10-open','w6-open');document.body.classList.add('vv12-open');for(const id of ['#vv3Panel','#vv4Panel','#vv5Monetization','#vv8Community','#vv9Live','#vv10Hub']){const x=$(id);if(x)x.hidden=true}$$('video.feedVideo').forEach(x=>x.pause());hub.hidden=false;history.replaceState(null,'',location.pathname+'#wallet');nav();render();refresh();scrollTo(0,0)}
+function hide(){if(!shown)return;shown=false;document.body.classList.remove('vv12-open');hub.hidden=true;nav()}
+async function refresh(){if(refreshing)return;refreshing=true;error='';
+try{status=await api('/api/finance-status');const sb=getClient();if(!sb){me=null;wallet=null;error='Supabase is not initialized in this browser';return}
+const [u,s]=await Promise.all([sb.auth.getUser(),sb.auth.getSession()]);me=u.data?.user&&u.data.user.is_anonymous!==true?u.data.user:null;token=s.data?.session?.access_token||'';
+if(!me||!token){me=null;wallet=null;receipts=[];settlements=[];adjustments=[];requests=[];recipients=[];return}
+const headers={Authorization:'Bearer '+token};
+const uid=me.id;
+const [w,r,a,b,p]=await Promise.all([
+api('/api/wallet',{headers}),
+sb.from('vv_payment_ledger').select('id,order_id,amount_kobo,entry_type,provider_ref,created_at').eq('merchant_id',uid).order('created_at',{ascending:false}).limit(100),
+sb.from('vv_payment_settlements').select('id,order_id,amount_kobo,settled_at').eq('merchant_id',uid).order('settled_at',{ascending:false}).limit(100),
+sb.from('vv_money_adjustments').select('id,type,amount_kobo,created_at,reason').eq('merchant_id',uid).order('created_at',{ascending:false}).limit(100),
+sb.from('vv_payout_requests').select('id,amount_kobo,status,created_at,paid_at').eq('merchant_id',uid).order('created_at',{ascending:false}).limit(100)]);
+if([r,a,b,p].some(x=>x.error))throw Error('Unable to load some protected financial records');
+wallet=w.wallet;receipts=r.data||[];settlements=a.data||[];adjustments=b.data||[];requests=p.data||[];
+recipients=[];if(payoutOn()){try{recipients=(await api('/api/payout-options',{headers})).recipients||[]}catch{}}
+last=Date.now();
+}catch(e){error=e.message||'Could not load verified financial records';console.warn('VibeVerse finance:',e)}finally{refreshing=false;render();nav()}}
+function chip(value,ok){return '<span class="vv12-chip '+(ok?'on':'')+'">'+ico(ok?'check':'lock')+' '+value+'</span>'}
+function head(){return '<header class="vv12-hero"><div class="vv12-kicker">'+ico('shield')+' VIBEVERSE FINANCIAL CONTROL · 12.0</div><h1>Real money. <em>Real records.</em></h1><p>Track genuine receipts and provider settlements without fabricated earnings, wallet balances or withdrawals.</p><div class="vv12-chips">'+chip(status?.checkoutStatus!=='disabled'?'Checkout configured':'Payments locked',status?.checkoutStatus!=='disabled')+chip(payoutOn()?'Requests configured':'Payouts locked',payoutOn())+'</div></header>'}
+function tabs(){return '<nav class="vv12-tabs">'+[['overview','chart','Overview'],['records','list','Transactions'],['payouts','wallet','Withdrawals'],['setup','settings','Setup']].map(([id,ic,text])=>'<button data-v12-tab="'+id+'" class="'+(tab===id?'selected':'')+'">'+ico(ic)+text+'</button>').join('')+'</nav>'}
+function metric(name,amount,description){return '<article class="vv12-metric"><small>'+name+'</small><b>'+fmt(amount)+'</b><span>'+description+'</span></article>'}
+function overview(){const w=wallet||{};
+return '<div class="vv12-section-title"><div><h2>My financial overview</h2><p>Verified records for '+safe(me.email||'your account')+'</p></div><button class="vv12-btn" data-v12-action="refresh">'+ico('refresh')+' Refresh</button></div><div class="vv12-grid4">'+
+metric('Verified gross receipts',w.verified_gross_kobo,'Confirmed checkout transactions')+
+metric('Provider settlements',w.provider_settled_kobo,'Verified settlement records')+
+metric('Deductions',w.deductions_kobo,'Refunds, disputes and fees')+
+metric('Payout holds',w.reserved_payouts_kobo,'Awaiting payout review')+'</div>'+
+'<div class="vv12-columns"><article class="vv12-panel vv12-balance"><span>Remaining reconciled funds</span><h2>'+fmt(w.remaining_reconciled_kobo)+'</h2><p>Based on settled funds minus deductions, pending payout reservations and completed payouts. This is not an automatically withdrawable amount.</p><div class="vv12-rule"><span>Withdrawable now</span><b>'+(payoutOn()?'Requires final eligibility':'Unavailable')+'</b></div><div class="vv12-rule"><span>Previously paid out</span><b>'+fmt(w.completed_payouts_kobo)+'</b></div><div class="vv12-rule"><span>Merchant status</span><b>'+safe(w.merchant_status||'Not approved')+'</b></div><button class="vv12-btn primary" data-v12-tab="payouts">Withdrawal center</button></article>'+
+'<article class="vv12-panel"><h3>Provider readiness</h3>'+[
+['Shared database',true,'Protected account financial records'],
+['Provider-verified checkout',status?.checkoutStatus!=='disabled','Live merchant credentials and verification required'],
+['Withdrawal requests',payoutOn(),'Approval and reconciled funds required'],
+['Automatic transfers',false,'Not enabled — manual review still required']
+].map(([t,ok,d])=>'<div class="vv12-service"><span class="'+(ok?'ok':'locked')+'">'+ico(ok?'check':'lock')+'</span><div><b>'+t+'</b><small>'+d+'</small></div></div>').join('')+'</article></div>'+
+'<div class="vv12-note">'+ico('info')+' Views, likes and follows do not produce automatic earnings. Only provider-confirmed transactions may become financial records.</div>'}
+function transactions(){const list=[...receipts.map(x=>({type:'Confirmed sale',at:x.created_at,amount:x.amount_kobo,sign:1,ref:x.provider_ref||x.order_id})),...settlements.map(x=>({type:'Settled by provider',at:x.settled_at,amount:x.amount_kobo,sign:0,ref:x.order_id})),...adjustments.map(x=>({type:String(x.type).replaceAll('_',' '),at:x.created_at,amount:x.amount_kobo,sign:-1,ref:x.reason||x.id}))].sort((a,b)=>Date.parse(b.at)-Date.parse(a.at));
+return '<div class="vv12-section-title"><div><h2>Verified transactions</h2><p>Read-only payment-provider and settlement ledger.</p></div><button class="vv12-btn" data-v12-action="export">'+ico('download')+' Export CSV</button></div>'+
+(list.length?'<div class="vv12-history">'+list.map(x=>'<div class="vv12-item"><div class="vv12-item-icon">'+ico(x.sign<0?'shield':x.sign===0?'check':'chart')+'</div><div><b>'+safe(x.type)+'</b><small>'+at(x.at)+' · '+safe(String(x.ref||'').slice(0,26))+'</small></div><strong class="'+(x.sign<0?'negative':'')+'">'+(x.sign<0?'−':x.sign>0?'+':'')+fmt(x.amount)+'</strong></div>').join('')+'</div>':'<div class="vv12-empty">'+ico('list')+'<h3>No verified transactions yet</h3><p>Only real provider-confirmed payments and settlements appear here. Nothing has been invented or credited.</p></div>')+
+'<div class="vv12-note">'+ico('shield')+' A successful customer charge does not necessarily mean the funds have settled into the creator’s account.</div>'}
+function payouts(){return '<div class="vv12-section-title"><div><h2>Withdrawal center</h2><p>Requests, recipient verification and transfer history.</p></div>'+chip(payoutOn()?'Requests configured':'Payouts locked',payoutOn())+'</div>'+
+'<div class="vv12-columns"><article class="vv12-panel"><h3>Request a payout</h3><p>'+(payoutOn()?'A payout request reserves available reconciled funds for operator review. It does not send a transfer automatically.':'No transfers or payout requests are permitted until merchant approval, verified settlements, refund controls and provider eligibility checks are completed.')+'</p>'+
+(payoutOn()&&recipients.length?'<form id="vv12PayoutForm" class="vv12-form"><label>Amount in naira<input name="amount" inputmode="decimal" type="number" min="100" max="500000" step="0.01" required placeholder="₦ amount"/></label><label>Verified payout destination<select name="recipient" required>'+recipients.map(r=>'<option value="'+safe(r.id)+'">'+safe(r.bank_name)+' · '+safe(r.account_masked)+'</option>').join('')+'</select></label><button class="vv12-btn primary" type="submit">Submit for manual approval</button><small>No money transfers immediately.</small></form>':payoutOn()?'<div class="vv12-empty small">No provider-verified payout destination is linked to this account.</div>':'<button class="vv12-btn" data-v12-action="refresh">Recheck eligibility</button>')+
+'<div class="vv12-rule"><span>Merchant verification</span><b>'+safe(wallet?.merchant_status||'Not approved')+'</b></div></article>'+
+'<article class="vv12-panel"><h3>Withdrawal requests</h3>'+(requests.length?requests.map(x=>'<div class="vv12-request"><div><b>'+fmt(x.amount_kobo)+'</b><small>'+at(x.created_at)+'</small></div><span>'+safe(x.status)+'</span></div>').join(''):'<div class="vv12-empty small">No withdrawal requests or completed transfers are recorded.</div>')+'</article></div>'+
+'<div class="vv12-note">'+ico('shield')+' “Queued” and “approved” are not paid. A payout only becomes complete after the payment provider verifies the transfer result.</div>'}
+function setup(){const base='https://supabase.com/dashboard/project/qngkwjhhykugjfkwoyam';
+return '<div class="vv12-section-title"><div><h2>Prepare real-money activation</h2><p>These are genuine provider requirements, not switches that can be bypassed.</p></div></div>'+
+'<div class="vv12-guides">'+[
+['01','Merchant eligibility','Complete authorized Paystack merchant onboarding, age/identity checks and any required business verification.','https://dashboard.paystack.com','Paystack dashboard'],
+['02','Secure server configuration','Configure API credentials only as protected Vercel environment secrets, not in the browser or chat.','https://vercel.com/dashboard','Vercel'],
+['03','Reconciliation and refunds','Match payments with actual settlements and record refunds, fees and disputes before calculating payout eligibility.',base+'/editor','Supabase records'],
+['04','Verified transfer destination','Use provider-approved beneficiary tokens, review payout requests and implement signed transfer-result webhooks.','https://paystack.com/docs/transfers/single-transfers/','Transfer documentation']
+].map(([num,title,detail,url,label])=>'<article class="vv12-guide"><span>'+num+'</span><div><b>'+title+'</b><p>'+detail+'</p><a href="'+url+'" target="_blank" rel="noopener noreferrer">'+label+'</a></div></article>').join('')+'</div>'+
+'<div class="vv12-note">'+ico('info')+' Real payments and transfers require eligible account ownership, approved provider terms, server-side secrets and audit-tested operations. VibeVerse is not processing money today.</div>'}
+function render(){if(!shown)return;hub.innerHTML='<div class="vv12-wrap">'+head()+tabs()+(me?(error?'<div class="vv12-empty">'+ico('lock')+'<h3>Financial records unavailable</h3><p>'+safe(error)+'</p><button class="vv12-btn" data-v12-action="refresh">Retry</button></div>':tab==='overview'?overview():tab==='records'?transactions():tab==='payouts'?payouts():setup()):'<div class="vv12-gate">'+ico('lock')+'<h2>Sign in to view your wallet</h2><p>Your real receipts, withdrawals, and settlement records are private to your VibeVerse account. No sample balances are shown.</p><button class="vv12-btn primary" data-v12-action="signin">Sign in to VibeVerse</button>'+(error?'<p>'+safe(error)+'</p>':'')+'</div>')+'<footer class="vv12-footer">VibeVerse Financial Control 12.0 · Real database records · No fake receipts · No automatic transfer.</footer></div>'}
+function csv(){if(!me)return toast('Please sign in first');const rows=[['Type','Date','Amount (kobo)','Reference','Status'],...receipts.map(x=>['Receipt',x.created_at,x.amount_kobo,x.provider_ref,'Confirmed']),...settlements.map(x=>['Settlement',x.settled_at,x.amount_kobo,x.order_id,'Settled']),...adjustments.map(x=>['Adjustment: '+x.type,x.created_at,-x.amount_kobo,x.reason,'Deducted']),...requests.map(x=>['Withdrawal',x.created_at,-x.amount_kobo,x.id,x.status])];const content=rows.map(a=>a.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');const url=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='vibeverse-verified-financial-records.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Your real financial records were exported')}
+async function submit(form){if(!payoutOn()||!token||!me)return toast('Withdrawals are not enabled');const fd=new FormData(form),amt=Math.round(Number(fd.get('amount'))*100),rec=String(fd.get('recipient')||'');if(!Number.isInteger(amt)||amt<10000||amt>50000000||!valid(rec))return toast('Enter a valid approved amount and recipient');const b=form.querySelector('button[type="submit"]');if(b)b.disabled=true;try{const out=await api('/api/payout-request',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({amount_kobo:amt,recipient_id:rec})});toast(out.message||'Submitted for review; no money has been transferred');await refresh()}catch(e){toast(e.message)}finally{if(b)b.disabled=false}}
+function signin(){hide();$('[data-route="settings"]')?.click();setTimeout(()=>$('#view [data-action="auth"]')?.click(),250)}
+document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.v12Nav!==undefined){show();return}if(['route','xRoute','vv4Route','earnNav','v8Nav','v9Nav','vv10Nav'].some(x=>b.dataset[x]!==undefined))hide()},true);
+document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.v12Tab){tab=b.dataset.v12Tab;render();if(Date.now()-last>25000)refresh();return}switch(b.dataset.v12Action){case 'refresh':refresh();break;case 'export':csv();break;case 'signin':signin();break}});
+document.addEventListener('submit',e=>{if(e.target.id==='vv12PayoutForm'){e.preventDefault();submit(e.target)}});
+for(const id of ['desktopNav','mobileNav']){const n=$('#'+id);if(n)new MutationObserver(nav).observe(n,{childList:true})}
+nav();if(location.hash==='#wallet')setTimeout(show,250);
+setInterval(()=>{if(shown&&document.visibilityState==='visible'&&Date.now()-last>42000)refresh()},45000);
+window.addEventListener('storage',e=>{if(shown&&(e.key==='vv2_config'||e.key?.includes('-auth-token')))refresh()});
+})();

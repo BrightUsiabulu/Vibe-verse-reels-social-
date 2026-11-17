@@ -51,7 +51,10 @@ async function storage(path,options={}){
   const secret=env('SUPABASE_SERVICE_ROLE_KEY');
   const r=await fetch(new URL('/rest/v1/'+path,env('SUPABASE_URL')),{...options,headers:{apikey:secret,authorization:'Bearer '+secret,...options.headers},cache:'no-store',signal:AbortSignal.timeout(10000)});
   if(!r.ok)throw Error('Private storage failed ('+r.status+')');
-  return r.status===204?null:r.json();
+  // PostgREST may return 201 Created with an empty body for Prefer: return=minimal.
+  // A successful write must not be reported as a failed OAuth callback.
+  const body=await r.text();
+  return body.trim()?JSON.parse(body):null;
 }
 export async function saveRefreshToken(token){
   return storage('adsense_connections?on_conflict=id',{method:'POST',headers:{'content-type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({id:1,owner_uid:env('ADSENSE_ADMIN_UID'),encrypted_refresh_token:encrypt(token),updated_at:new Date().toISOString()})});

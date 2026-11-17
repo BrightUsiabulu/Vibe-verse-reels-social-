@@ -1,18 +1,34 @@
-# VibeVerse — current live frontend snapshot
+# VibeVerse — recovered live application
 
-Recovered from Vercel production deployment on 17 November 2026.
+Current live site: https://vibeverse-bright-studio.vercel.app/
 
-Live application: https://vibeverse-bright-studio.vercel.app/
+## Recovery status (17 November 2026)
 
-## What is here
-108 recovered text frontend assets: the current HTML pages, JavaScript, CSS, SVG icon, service worker and web manifest. These are the files served to browsers by that deployment, not the old Lovable frontend.
+- 108 frontend files (HTML/CSS/JS/SVG/web manifest) recovered from the latest known production deployment and saved in this branch.
+- Two small backend source files recovered: `api/status.mjs` and `api/verify.mjs`.
+- Google AdSense ownership-verification script added to `index.html` using publisher ID `ca-pub-3767027718493089`.
+- `main` and the existing Vercel production deployment have NOT been modified.
 
-## Important — not yet a complete deployable source project
-This snapshot does **not** include binary icons (PNG), private source-only project files, server-side API modules (such as payment/webhook and payout code), required hosting configuration, secrets, or data/database infrastructure. Do not replace the current production deployment with this branch yet.
+## Incomplete — do not deploy or merge yet
 
-Backend credentials must be stored as environment variables, never committed to this public repository. Review all source code and remove credentials before merging to the default branch.
+The original deployment has 176 source/deployment entries, but this GitHub snapshot is **not yet functionally equivalent**.
+Important missing components include:
+- `lib/vv-backend.mjs` and most `api/*.mjs` functions for live, checkout, webhook, wallet, and payouts.
+- Three PNG application icons and production build configuration.
+- Original SQL/database setup scripts and engineering notes.
+- Production environment variables and external account configuration (not to be committed to GitHub).
 
-## Current status
-Restored on branch `vibeverse-current-snapshot`; default branch `main` remains unchanged.
+The two recovered API modules depend on the currently missing backend library. They are archived for source recovery, not operational.
 
-The website is still served by the original Vercel deployment. Production integration, API restoration, test/build verification and AdSense verification remain separate steps.
+## Next steps
+
+1. Locate the **original full source folder or deployment archive** used by Vercel; securely recover backend source (and review the code for embedded secrets).
+2. Restore required PNGs and build/deployment configuration.
+3. Recreate sensitive environment variables inside Vercel dashboard; **never** put secret keys in this public repository.
+4. Test a separate preview deployment and verify routes, login, uploads, payments, and admin behavior.
+5. Only after preview validation, consider reconnecting the GitHub repository or merging to `main`. The live application must not be replaced by this incomplete copy.
+6. Once verification code is live, continue Google AdSense ownership verification and the site-review process. Code insertion alone does not activate revenue.
+
+## Security
+
+No `.env` files, server secrets, payment provider private keys or database service-role keys belong in this public repository.

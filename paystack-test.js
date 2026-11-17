@@ -1,0 +1,13 @@
+(()=>{'use strict';
+const $=s=>document.querySelector(s),status=()=>fetch('/api/finance-status',{cache:'no-store'}).then(r=>r.json());
+let token='',ready=false,busy=false;
+const ref=$('#reference'),result=$('#result');
+function show(s){result.textContent=s}
+function auth(){try{const c=JSON.parse(localStorage.getItem('vv2_config')||'null');if(!c?.url)return '';const id=new URL(c.url).hostname.split('.')[0];return JSON.parse(localStorage.getItem('sb-'+id+'-auth-token')||'null')?.access_token||''}catch{return ''}}
+function render(x){const items=[['Supabase connection',x.databaseConfigured],['Test-only server key',x.testKeyConfigured],['Authorized test administrator',x.testAdministratorConfigured],['Test lab configured',x.testLabStatus==='configured_not_tested']];$('#checks').replaceChildren(...items.map(([label,ok])=>{const li=document.createElement('li'),d=document.createElement('span');d.className='dot'+(ok?' good':'');d.textContent=ok?'✓':'○';li.append(d,document.createTextNode(label+' — '+(ok?'ready':'not configured')));return li}));ready=x.testLabStatus==='configured_not_tested';token=auth();buttons()}
+function buttons(){$('#start').disabled=busy||!ready||!token;$('#verify').disabled=busy||!ready||!token||!ref.value}
+async function refresh(){try{render(await status())}catch{show('Could not check the connection. Try again.');ready=false;buttons()}}
+async function call(action){if(busy||!ready||!token)return;busy=true;buttons();try{const r=await fetch('/api/finance-status',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({action,reference:ref.value})});const x=await r.json();if(!r.ok)throw Error(x.message||x.code||'Test action failed');if(action==='initialize'){ref.value=x.reference;sessionStorage.setItem('vv14_test_ref',x.reference);show('Test checkout created. No real funds will move.');location.assign(x.authorization_url)}else{show('TEST ONLY\nProvider status: '+x.provider_status+'\nVerified: '+(x.verified?'yes':'no')+'\nAmount: ₦1,000 (test)\nNo live wallet, settlement or withdrawal records were written.')}}catch(e){show(e.message)}finally{busy=false;buttons()}}
+try{const q=new URLSearchParams(location.search),value=q.get('reference')||q.get('trxref')||sessionStorage.getItem('vv14_test_ref')||'';if(/^VVT-[0-9a-f]{32}-[0-9a-f]{32}$/.test(value)){ref.value=value;history.replaceState(null,'',location.pathname);show('Test reference loaded. Select Verify with Paystack.')}}catch{}
+$('#refresh').onclick=refresh;$('#start').onclick=()=>call('initialize');$('#verify').onclick=()=>call('verify');refresh();
+})();

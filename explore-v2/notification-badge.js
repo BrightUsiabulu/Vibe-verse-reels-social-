@@ -7,7 +7,7 @@ function attach(){
  for(const button of document.querySelectorAll(target)){
   let dot=button.querySelector('.vv-unread-dot');
   if(!dot){dot=document.createElement('span');dot.className='vv-unread-dot';dot.setAttribute('aria-hidden','true');button.style.position='relative';button.append(dot)}
-  dot.textContent=count>99?'99+':count>0?String(count):'';
+  const dotText=count>99?'99+':count>0?String(count):'';if(dot.textContent!==dotText)dot.textContent=dotText;
   dot.style.cssText='position:absolute;top:-4px;right:-5px;min-width:16px;height:16px;padding:0 3px;border-radius:10px;background:#f04c72;color:white;font:700 10px/16px system-ui;text-align:center;pointer-events:none;box-sizing:border-box;display:'+(count?'block':'none');
   button.setAttribute('aria-label',count?('Notifications: '+count+' unread'):'Notifications');
  }
@@ -17,7 +17,7 @@ function attach(){
   if(!link){
    link=document.createElement('a');link.href='/notifications.html';link.dataset.vvInboxLink='1';link.textContent='Inbox';link.style.cssText='display:flex;align-items:center;justify-content:center;gap:4px;font-size:11px;color:inherit;text-decoration:none;padding:5px 7px;min-height:36px';nav.append(link);
   }
-  const label=count?('Inbox '+(count>99?'99+':count)):'Inbox';link.textContent=label;link.setAttribute('aria-label',count?'Inbox with '+count+' unread notifications':'Notification Inbox');
+  const label=count?('Inbox '+(count>99?'99+':count)):'Inbox';if(link.textContent!==label)link.textContent=label;link.setAttribute('aria-label',count?'Inbox with '+count+' unread notifications':'Notification Inbox');
  }
 }
 function paint(n){count=Math.max(0,Number(n)||0);attach()}

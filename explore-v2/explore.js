@@ -2,7 +2,8 @@
 'use strict';
 const SUPABASE_URL='https://qngkwjhhykugjfkwoyam.supabase.co', KEY='sb_publishable__rfc1XG15o-nZ44zT2odpg_pvtQMxaM';
 const $=id=>document.getElementById(id), safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;':'&quot;',"'":'&#39;'}[c]));
-const state={sb:null,posts:[],filter:'all',term:'',sort:'latest',selected:null,user:null,loading:false,queue:[]};
+const PAGE=12;let mediaObserver=null;
+const state={sb:null,posts:[],filter:'all',term:'',sort:'latest',selected:null,user:null,loading:false,queue:[],offset:{video:0,photo:0},ended:{video:false,photo:false}};
 const message=t=>{$('status').textContent=t};
 const status=t=>{$('modStatus').textContent=t};
 function date(v){try{return new Date(v).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'})}catch{return ''}}
@@ -36,36 +37,53 @@ function render(){
   const button=article.querySelector('button.report');button.addEventListener('click',()=>chooseReport(post));
   frag.append(article);
  });
+ if(mediaObserver){mediaObserver.disconnect();mediaObserver=null}
+ for(const v of $('posts').querySelectorAll('video'))try{v.pause()}catch{}
  $('posts').replaceChildren(frag);
+ if('IntersectionObserver' in window){
+   mediaObserver=new IntersectionObserver(entries=>{for(const e of entries)if(!e.isIntersecting&&e.target instanceof HTMLVideoElement&&!e.target.paused)e.target.pause()},{rootMargin:'30px',threshold:0.01});
+   for(const vid of $('posts').querySelectorAll('video'))mediaObserver.observe(vid);
+ }
  $('empty').hidden=data.length!==0||state.loading;
+ $('loadMore').hidden=state.ended.video&&state.ended.photo;
+ $('loadMore').disabled=state.loading;
  $('counts').textContent=state.posts.filter(p=>p.type==='video').length+' public videos · '+state.posts.filter(p=>p.type==='photo').length+' public photos';
 }
-async function fetchTable(name,columns,filters=null){
- let q=state.sb.from(name).select(columns).order('created_at',{ascending:false}).limit(60);
- if(filters)for(const [key,val] of Object.entries(filters))q=q.eq(key,val);
+async function fetchTable(name,columns,filters,offset){
+ let q=state.sb.from(name).select(columns).order('created_at',{ascending:false}).range(offset,offset+PAGE-1);
+ for(const [key,val] of Object.entries(filters))q=q.eq(key,val);
  const res=await q;if(res.error)throw res.error;return res.data||[];
 }
-async function load(){
- if(state.loading)return;state.loading=true;$('reload').disabled=true;message('Loading real public posts from VibeVerse…');
+async function loadPage(){
+ if(state.loading)return;
+ state.loading=true;$('reload').disabled=true;$('loadMore').disabled=true;
+ message(state.posts.length?'Loading more real posts…':'Loading real public posts from VibeVerse…');
  try{
-  const [vid,pho]=await Promise.allSettled([
-    fetchTable('videos','id,user_id,video_url,thumbnail_url,caption,hashtags,visibility,created_at',{visibility:'public'}),
-    fetchTable('vv_photo_posts','id,user_id,image_path,caption,hashtags,created_at,likes_count,moderation_state',{moderation_state:'visible'})
-  ]);
-  const errors=[],posts=[];
-  if(vid.status==='fulfilled')posts.push(...vid.value.map(v=>({...v,type:'video'})));else errors.push('Videos unavailable');
-  if(pho.status==='fulfilled')posts.push(...pho.value.map(v=>({...v,type:'photo'})));else errors.push('Photos unavailable');
-  if(errors.length===2)throw Error('Could not load public media. Check your connection and retry.');
-  const ids=[...new Set(posts.map(x=>x.user_id).filter(Boolean))];
-  const map=new Map();
-  if(ids.length){
-   const {data}=await state.sb.from('profiles').select('id,username,display_name').in('id',ids.slice(0,120));
-   for(const p of data||[])map.set(p.id,p);
+  const pending=[];
+  if(!state.ended.video)pending.push({type:'video',promise:fetchTable('videos','id,user_id,video_url,thumbnail_url,caption,hashtags,visibility,created_at',{visibility:'public'},state.offset.video)});
+  if(!state.ended.photo)pending.push({type:'photo',promise:fetchTable('vv_photo_posts','id,user_id,image_path,caption,hashtags,created_at,likes_count,moderation_state',{moderation_state:'visible'},state.offset.photo)});
+  const results=await Promise.allSettled(pending.map(x=>x.promise));
+  const errors=[],incoming=[];
+  for(let i=0;i<results.length;i++){
+    const type=pending[i].type,r=results[i];
+    if(r.status==='rejected'){errors.push(type==='video'?'Videos temporarily unavailable':'Photos temporarily unavailable');continue}
+    const batch=r.value;incoming.push(...batch.map(row=>({...row,type})));
+    state.offset[type]+=batch.length;
+    if(batch.length<PAGE)state.ended[type]=true;
   }
-  state.posts=posts.map(p=>({...p,creator:map.get(p.user_id)||null}));
-  message(errors.length?errors.join(' · ')+'. Showing available public posts.':state.posts.length? 'Showing the latest real VibeVerse posts. Videos play when selected.':'No public posts are available yet.');
- }catch(e){state.posts=[];message(e.message||'Could not load VibeVerse media.')}
- finally{state.loading=false;$('reload').disabled=false;render()}
+  if(results.length&&errors.length===results.length)throw Error('Could not load public posts. Check your connection and retry.');
+  const ids=[...new Set(incoming.map(x=>x.user_id).filter(Boolean))],map=new Map();
+  if(ids.length){const r=await state.sb.from('profiles').select('id,username,display_name').in('id',ids);if(!r.error)for(const p of r.data||[])map.set(p.id,p)}
+  const seen=new Set(state.posts.map(x=>x.type+':'+x.id));
+  for(const p of incoming){const key=p.type+':'+p.id;if(!seen.has(key)){seen.add(key);state.posts.push({...p,creator:map.get(p.user_id)||null})}}
+  message(errors.length?errors.join(' · ')+'. Showing available content.':state.posts.length?'Showing '+state.posts.length+' loaded public posts from VibeVerse.':'No public posts are available yet.');
+ }catch(e){message(e.message||'Could not load VibeVerse media.');}
+ finally{state.loading=false;$('reload').disabled=false;$('loadMore').disabled=false;render()}
+}
+async function load(){
+ if(state.loading)return;
+ state.posts=[];state.offset={video:0,photo:0};state.ended={video:false,photo:false};
+ await loadPage();
 }
 async function loggedIn(){
  if(!state.sb)return null;
@@ -166,6 +184,7 @@ async function start(){
  $('search').addEventListener('input',e=>{state.term=e.target.value.trim();render()});
  $('sort').addEventListener('change',e=>{state.sort=e.target.value;render()});
  $('reload').addEventListener('click',load);
+ $('loadMore').addEventListener('click',loadPage);
  $('closeReport').addEventListener('click',()=>$('reportDialog').close());
  $('cancelReport').addEventListener('click',()=>$('reportDialog').close());
  $('reportDialog').addEventListener('close',()=>{$('sendReport').hidden=false});

@@ -2,7 +2,7 @@
 const BASE='https://qngkwjhhykugjfkwoyam.supabase.co', KEY='sb_publishable__rfc1XG15o-nZ44zT2odpg_pvtQMxaM', PAGE=18;
 const el=id=>document.getElementById(id);
 const data={sb:null,sessionUser:null,profiles:[],next:0,ended:false,busy:false,followIds:new Set(),followerCounts:new Map(),selected:null,profilePostFilter:'all',creatorPosts:[],socialRequest:0};
-const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','"':'&quot;':"&quot;","'":'&#39;'}[c]));
+const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function imageUrl(src){try{const u=new URL(String(src));return u.protocol==='https:'?u.href:null}catch{return null}}
 function setStatus(s){el('creatorStatus').textContent=s}
 function initials(p){const s=(p.display_name||p.username||'V').trim();return Array.from(s)[0]?.toUpperCase()||'V'}

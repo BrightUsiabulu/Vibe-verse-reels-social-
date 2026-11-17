@@ -1,7 +1,7 @@
 (()=>{'use strict';
 const BASE='https://qngkwjhhykugjfkwoyam.supabase.co', KEY='sb_publishable__rfc1XG15o-nZ44zT2odpg_pvtQMxaM', PAGE=18;
 const el=id=>document.getElementById(id);
-const data={sb:null,sessionUser:null,profiles:[],next:0,ended:false,busy:false,followIds:new Set(),followerCounts:new Map(),selected:null,profilePostFilter:'all',creatorPosts:[],socialRequest:0};
+const data={sb:null,sessionUser:null,profiles:[],next:0,ended:false,busy:false,followIds:new Set(),followerCounts:new Map(),selected:null,profilePostFilter:'all',creatorPosts:[],socialRequest:0,searchResults:null,searchSeq:0,notificationChannel:null,notifRefresh:null};
 const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function imageUrl(src){try{const u=new URL(String(src));return u.protocol==='https:'?u.href:null}catch{return null}}
 function setStatus(s){el('creatorStatus').textContent=s}
@@ -35,12 +35,13 @@ function renderCard(p){
 }
 function render(){
  const term=el('creatorSearch').value.trim().toLocaleLowerCase();
- const visible=data.profiles.filter(p=>[p.username,p.display_name,p.bio].join(' ').toLocaleLowerCase().includes(term));
+ const source=data.searchResults===null?data.profiles:data.searchResults;
+ const visible=source.filter(p=>[p.username,p.display_name,p.bio].join(' ').toLocaleLowerCase().includes(term));
  const out=document.createDocumentFragment();for(const p of visible)out.append(renderCard(p));el('creatorList').replaceChildren(out);
  el('creatorEmpty').hidden=visible.length>0||data.busy;
- el('moreCreators').hidden=data.ended;
+ el('moreCreators').hidden=data.searchResults!==null||data.ended;
  el('moreCreators').disabled=data.busy;
- el('profileCount').textContent=data.profiles.length+' public creator profiles loaded';
+ el('profileCount').textContent=data.searchResults!==null?visible.length+' matching creator profiles':data.profiles.length+' public creator profiles loaded';
 }
 async function loadMore(){
  if(data.busy||data.ended)return;
@@ -146,18 +147,55 @@ async function loadNotifications(){
  el('notificationList').replaceChildren(frag);const unread=items.filter(x=>!x.read_at).length;el('notificationStatus').textContent=items.length?items.length+' recent notifications · '+unread+' unread':'No notifications yet.';
 }
 
+let searchTimer=null;
+async function searchCreators(raw){
+ const token=++data.searchSeq;
+ const term=String(raw||'').trim().replace(/[^\p{L}\p{N} _.-]/gu,'').slice(0,60);
+ if(term.length<2){data.searchResults=null;render();return}
+ setStatus('Searching real creator profiles…');
+ try{
+  const pattern='%'+term+'%';
+  const query='username.ilike.'+pattern+',display_name.ilike.'+pattern+',bio.ilike.'+pattern;
+  const result=await data.sb.from('profiles').select('id,username,display_name,avatar_url,bio,updated_at').or(query).order('created_at',{ascending:false}).limit(36);
+  if(token!==data.searchSeq)return;
+  if(result.error)throw result.error;
+  data.searchResults=result.data||[];
+  await counts(data.searchResults);if(token!==data.searchSeq)return;
+  render();setStatus(data.searchResults.length+' matching creator profiles'+(data.searchResults.length===36?' (first 36)':'')+'.');
+ }catch(e){if(token!==data.searchSeq)return;data.searchResults=null;render();setStatus('Creator search unavailable. Showing loaded profiles instead.')}
+}
+function scheduleSearch(value){
+ if(searchTimer!==null)clearTimeout(searchTimer);
+ data.searchSeq++;
+ if(value.trim().length<2){data.searchResults=null;render();setStatus('Search by creator name, username, or bio.');return}
+ searchTimer=setTimeout(()=>searchCreators(value),250);
+}
+function subscribeNotifications(){
+ if(!data.sessionUser||data.notificationChannel)return;
+ const id=data.sessionUser.id;
+ data.notificationChannel=data.sb.channel('vv_creator_notifications_'+id)
+  .on('postgres_changes',{event:'INSERT',schema:'public',table:'vv_notifications',filter:'recipient_id=eq.'+id},()=>{
+   if(data.notifRefresh!==null)clearTimeout(data.notifRefresh);
+   data.notifRefresh=setTimeout(()=>{data.notifRefresh=null;loadNotifications()},400);
+  })
+  .subscribe(state=>{
+   if(state==='CHANNEL_ERROR'||state==='TIMED_OUT')el('notificationStatus').textContent='Live updates unavailable. Use Refresh to check for new notifications.';
+  });
+}
+
 async function init(){
  if(!window.supabase?.createClient){setStatus('Unable to load the account service. Refresh the page.');return}
  data.sb=window.supabase.createClient(BASE,KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
  await login();
- el('creatorSearch').addEventListener('input',render);
- el('refreshCreators').addEventListener('click',()=>{data.profiles=[];data.next=0;data.ended=false;render();loadMore()});
+ el('creatorSearch').addEventListener('input',e=>scheduleSearch(e.target.value));
+ el('refreshCreators').addEventListener('click',()=>{data.profiles=[];data.next=0;data.ended=false;data.searchResults=null;render();loadMore().then(()=>{if(el('creatorSearch').value.trim().length>=2)scheduleSearch(el('creatorSearch').value)})});
  el('moreCreators').addEventListener('click',loadMore);
  el('closeConnections').addEventListener('click',()=>{data.socialRequest++;el('socialPanel').hidden=true});
  el('showNotifications').addEventListener('click',()=>{loadNotifications();el('notificationsPanel').scrollIntoView({behavior:'smooth',block:'start'})});
  el('refreshNotifications').addEventListener('click',loadNotifications);
  await loadMore();
- if(data.sessionUser)await loadNotifications();
+ if(data.sessionUser){await loadNotifications();subscribeNotifications()}
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&data.sessionUser)loadNotifications()});
  const id=new URLSearchParams(location.search).get('id');
  if(id&&uuid(id)){
    let p=data.profiles.find(x=>x.id===id);

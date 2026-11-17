@@ -1,6 +1,6 @@
 (()=>{
 'use strict';
-const URL='https://qngkwjhhykugjfkwoyam.supabase.co', KEY='sb_publishable__rfc1XG15o-nZ44zT2odpg_pvtQMxaM';
+const SUPABASE_URL='https://qngkwjhhykugjfkwoyam.supabase.co', KEY='sb_publishable__rfc1XG15o-nZ44zT2odpg_pvtQMxaM';
 const $=id=>document.getElementById(id), safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;':'&quot;',"'":'&#39;'}[c]));
 const state={sb:null,posts:[],filter:'all',term:'',sort:'latest',selected:null,user:null,loading:false,queue:[]};
 const message=t=>{$('status').textContent=t};
@@ -17,7 +17,7 @@ function videoMedia(row){
  return '<video controls preload="none" playsinline disablepictureinpicture controlslist="nodownload"'+(poster?' poster="'+safe(poster)+'"':'')+' src="'+safe(src)+'"></video>';
 }
 function photoMedia(row){
- const img=URL+'/storage/v1/object/public/post-images/'+String(row.image_path||'').split('/').map(encodeURIComponent).join('/');
+ const img=SUPABASE_URL+'/storage/v1/object/public/post-images/'+String(row.image_path||'').split('/').map(encodeURIComponent).join('/');
  return '<img src="'+safe(img)+'" alt="Photo posted to VibeVerse" loading="lazy" decoding="async" referrerpolicy="no-referrer">';
 }
 function render(){
@@ -158,7 +158,7 @@ async function reviewReport(item,verdict,button){
 }
 async function start(){
  if(!window.supabase?.createClient){message('Authentication service unavailable. Please reload.');return}
- state.sb=window.supabase.createClient(URL,KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
+ state.sb=window.supabase.createClient(SUPABASE_URL,KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
  await loggedIn();
  document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{
    document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));state.filter=b.dataset.filter;render();

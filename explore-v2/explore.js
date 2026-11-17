@@ -1,0 +1,178 @@
+(()=>{
+'use strict';
+const URL='https://qngkwjhhykugjfkwoyam.supabase.co', KEY='sb_publishable__rfc1XG15o-nZ44zT2odpg_pvtQMxaM';
+const $=id=>document.getElementById(id), safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;':'&quot;',"'":'&#39;'}[c]));
+const state={sb:null,posts:[],filter:'all',term:'',sort:'latest',selected:null,user:null,loading:false,queue:[]};
+const message=t=>{$('status').textContent=t};
+const status=t=>{$('modStatus').textContent=t};
+function date(v){try{return new Date(v).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'})}catch{return ''}}
+const num=n=>Number.isFinite(Number(n))?Number(n):0;
+const thumb=(row)=>String(row.thumbnail_url||'');
+const safeUrl=value=>{
+  try{const u=new URL(String(value));return u.protocol==='https:'?u.href:''}catch{return ''}
+};
+function videoMedia(row){
+ const src=safeUrl(row.video_url),poster=safeUrl(thumb(row));
+ if(!src)return '<div class="media-error">Video unavailable</div>';
+ return '<video controls preload="none" playsinline disablepictureinpicture controlslist="nodownload"'+(poster?' poster="'+safe(poster)+'"':'')+' src="'+safe(src)+'"></video>';
+}
+function photoMedia(row){
+ const img=URL+'/storage/v1/object/public/post-images/'+String(row.image_path||'').split('/').map(encodeURIComponent).join('/');
+ return '<img src="'+safe(img)+'" alt="Photo posted to VibeVerse" loading="lazy" decoding="async" referrerpolicy="no-referrer">';
+}
+function render(){
+ const filter=state.filter,term=state.term.toLocaleLowerCase();
+ let data=state.posts.filter(p=>(filter==='all'||p.type===filter)&&(!term||[p.caption,p.hashtags,p.creator?.display_name,p.creator?.username].join(' ').toLocaleLowerCase().includes(term)));
+ if(state.sort==='popular')data.sort((a,b)=>(num(b.type==='photo'?b.likes_count:0)-num(a.type==='photo'?a.likes_count:0))||(new Date(b.created_at)-new Date(a.created_at)));
+ else data.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+ const frag=document.createDocumentFragment();
+ data.forEach(post=>{
+  const article=document.createElement('article');article.className='post';
+  const creator=post.creator?.display_name||post.creator?.username||'VibeVerse creator';
+  const handle=post.creator?.username?'@'+post.creator.username:'';
+  article.innerHTML='<div class="media">'+(post.type==='video'?videoMedia(post):photoMedia(post))+'<span class="type">'+(post.type==='video'?'VIDEO':'PHOTO')+'</span></div>'+
+    '<div class="body"><div class="creator">'+safe(creator)+(handle?' · '+safe(handle):'')+'</div><div class="caption">'+safe(post.caption||'Untitled post')+'</div>'+
+    '<div class="tags">'+safe(post.hashtags||'')+'</div><div class="bottom"><time datetime="'+safe(post.created_at)+'">'+safe(date(post.created_at))+'</time><button class="report" type="button" aria-label="Report this '+post.type+'">Report</button></div></div>';
+  const button=article.querySelector('button.report');button.addEventListener('click',()=>chooseReport(post));
+  frag.append(article);
+ });
+ $('posts').replaceChildren(frag);
+ $('empty').hidden=data.length!==0||state.loading;
+ $('counts').textContent=state.posts.filter(p=>p.type==='video').length+' public videos · '+state.posts.filter(p=>p.type==='photo').length+' public photos';
+}
+async function fetchTable(name,columns,filters=null){
+ let q=state.sb.from(name).select(columns).order('created_at',{ascending:false}).limit(60);
+ if(filters)for(const [key,val] of Object.entries(filters))q=q.eq(key,val);
+ const res=await q;if(res.error)throw res.error;return res.data||[];
+}
+async function load(){
+ if(state.loading)return;state.loading=true;$('reload').disabled=true;message('Loading real public posts from VibeVerse…');
+ try{
+  const [vid,pho]=await Promise.allSettled([
+    fetchTable('videos','id,user_id,video_url,thumbnail_url,caption,hashtags,visibility,created_at',{visibility:'public'}),
+    fetchTable('vv_photo_posts','id,user_id,image_path,caption,hashtags,created_at,likes_count,moderation_state',{moderation_state:'visible'})
+  ]);
+  const errors=[],posts=[];
+  if(vid.status==='fulfilled')posts.push(...vid.value.map(v=>({...v,type:'video'})));else errors.push('Videos unavailable');
+  if(pho.status==='fulfilled')posts.push(...pho.value.map(v=>({...v,type:'photo'})));else errors.push('Photos unavailable');
+  if(errors.length===2)throw Error('Could not load public media. Check your connection and retry.');
+  const ids=[...new Set(posts.map(x=>x.user_id).filter(Boolean))];
+  const map=new Map();
+  if(ids.length){
+   const {data}=await state.sb.from('profiles').select('id,username,display_name').in('id',ids.slice(0,120));
+   for(const p of data||[])map.set(p.id,p);
+  }
+  state.posts=posts.map(p=>({...p,creator:map.get(p.user_id)||null}));
+  message(errors.length?errors.join(' · ')+'. Showing available public posts.':state.posts.length? 'Showing the latest real VibeVerse posts. Videos play when selected.':'No public posts are available yet.');
+ }catch(e){state.posts=[];message(e.message||'Could not load VibeVerse media.')}
+ finally{state.loading=false;$('reload').disabled=false;render()}
+}
+async function loggedIn(){
+ if(!state.sb)return null;
+ try{const {data}=await state.sb.auth.getUser();state.user=data?.user||null}catch{state.user=null}
+ $('accountLink').textContent=state.user?'Signed in':'Sign in';
+ return state.user;
+}
+function chooseReport(post){
+ state.selected=post;
+ $('reportReason').value='spam';$('reportStatus').textContent='';
+ $('sendReport').disabled=false;
+ if(typeof $('reportDialog').showModal==='function')$('reportDialog').showModal();
+}
+async function report(e){
+ e.preventDefault();
+ if(!state.selected)return;
+ const user=await loggedIn();
+ if(!user){$('reportStatus').textContent='Sign in from the VibeVerse Account Center first, then return here to submit a report.';return}
+ if(state.selected.user_id===user.id){$('reportStatus').textContent='You cannot report your own post.';return}
+ const reason=$('reportReason').value;
+ if(!['spam','harassment','unsafe_content','privacy','other'].includes(reason))return;
+ $('sendReport').disabled=true;$('reportStatus').textContent='Submitting your report…';
+ try{
+  const post=state.selected;
+  let row,table;
+  if(post.type==='video'){table='reports';row={video_id:post.id,reporter_id:user.id,reason}}
+  else{table='vv_photo_reports';row={photo_id:post.id,reporter_id:user.id,category:reason,review_state:'pending'}}
+  const r=await state.sb.from(table).insert(row);
+  if(r.error)throw r.error;
+  $('reportStatus').textContent='Report submitted successfully. Thank you for helping protect the community.';
+  $('sendReport').hidden=true;
+ }catch(e){
+  $('sendReport').disabled=false;
+  const msg=String(e?.message||'');
+  $('reportStatus').textContent=/duplicate|unique/i.test(msg)?'You have already reported this post.':/permission|policy|jwt|mfa|row-level|rls/i.test(msg)?'Your account does not currently meet the verification requirements for reporting. Sign in again or complete account verification.':'Could not submit the report. Please retry.';
+ }
+}
+async function checkAdmin(){
+ try{
+  const user=await loggedIn();
+  if(!user)return false;
+  const {data,error}=await state.sb.rpc('vv_explore_admin_access');
+  if(error||data!==true)return false;
+  $('moderation').hidden=false;
+  return true;
+ }catch{return false}
+}
+async function moderate(){
+ if(!$('moderation')||$('moderation').hidden)return;
+ status('Loading restricted reports…');
+ try{
+  const [vr,pr,review]=await Promise.all([
+   state.sb.from('reports').select('id,video_id,reason,created_at,reporter_id').order('created_at',{ascending:false}).limit(70),
+   state.sb.from('vv_photo_reports').select('id,photo_id,category,created_at,review_state').order('created_at',{ascending:false}).limit(70),
+   state.sb.from('vv_explore_video_report_reviews').select('report_id,review_state,resolved_at').limit(100)
+  ]);
+  if(vr.error||pr.error||review.error)throw Error('Protected moderation queue unavailable.');
+  const reviewed=new Map((review.data||[]).map(x=>[x.report_id,x]));
+  state.queue=[...(vr.data||[]).map(x=>({id:x.id,type:'video',postId:x.video_id,reason:x.reason,created_at:x.created_at,review_state:reviewed.get(x.id)?.review_state||'pending'})),
+   ...(pr.data||[]).map(x=>({id:x.id,type:'photo',postId:x.photo_id,reason:x.category,created_at:x.created_at,review_state:x.review_state}))].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  const frag=document.createDocumentFragment();
+  for(const record of state.queue){
+   const card=document.createElement('div');card.className='queue-item';
+   const main=document.createElement('div');main.className='q-main';
+   const bold=document.createElement('b');bold.textContent=record.type.toUpperCase()+' · '+record.reason;
+   const smaller=document.createElement('small');smaller.textContent='Post '+record.postId.slice(0,8)+'… · '+date(record.created_at)+' · Status: '+record.review_state;
+   main.append(bold,smaller);card.append(main);
+   if(record.review_state==='pending'){
+    const actions=document.createElement('div');actions.className='queue-actions';
+    for(const verdict of ['reviewed','dismissed']){
+     const button=document.createElement('button');button.type='button';button.textContent=verdict==='reviewed'?'Mark reviewed':'Dismiss';
+     button.addEventListener('click',()=>reviewReport(record,verdict,button));actions.append(button);
+    }card.append(actions);
+   }else{const s=document.createElement('span');s.className='state';s.textContent=record.review_state;card.append(s)}
+   frag.append(card);
+  }
+  $('reportQueue').replaceChildren(frag);status(state.queue.length?'Showing '+state.queue.length+' recent reports.':'There are no reports to review.');
+ }catch(e){status(e.message||'Could not access moderation queue.')}
+}
+async function reviewReport(item,verdict,button){
+ button.disabled=true;status('Saving '+verdict+' decision…');
+ try{
+  const u=await loggedIn();if(!u)throw Error('Admin session expired');
+  let q;
+  if(item.type==='photo')q=state.sb.from('vv_photo_reports').update({review_state:verdict,resolved_at:new Date().toISOString()}).eq('id',item.id);
+  else q=state.sb.from('vv_explore_video_report_reviews').upsert({report_id:item.id,review_state:verdict,reviewed_by:u.id,resolved_at:new Date().toISOString()},{onConflict:'report_id'});
+  const {error}=await q;if(error)throw error;
+  await moderate();
+ }catch{status('Could not save review. Please confirm administrator MFA and retry.');button.disabled=false}
+}
+async function start(){
+ if(!window.supabase?.createClient){message('Authentication service unavailable. Please reload.');return}
+ state.sb=window.supabase.createClient(URL,KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
+ await loggedIn();
+ document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{
+   document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));state.filter=b.dataset.filter;render();
+ }));
+ $('search').addEventListener('input',e=>{state.term=e.target.value.trim();render()});
+ $('sort').addEventListener('change',e=>{state.sort=e.target.value;render()});
+ $('reload').addEventListener('click',load);
+ $('closeReport').addEventListener('click',()=>$('reportDialog').close());
+ $('cancelReport').addEventListener('click',()=>$('reportDialog').close());
+ $('reportDialog').addEventListener('close',()=>{$('sendReport').hidden=false});
+ $('reportForm').addEventListener('submit',report);
+ $('refreshReports').addEventListener('click',moderate);
+ await load();
+ if(await checkAdmin())await moderate();
+}
+start().catch(()=>message('Explore could not start. Please reload the page.'));
+})();

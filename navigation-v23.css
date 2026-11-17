@@ -1,0 +1,14 @@
+/* V23: navigation is consistent across every app route, not only Profile/Inbox. */
+#mobileNav{overflow-x:hidden!important;white-space:normal!important;gap:0!important}
+#mobileNav>*:not([data-route="home"]):not([data-vv22-friends]):not([data-route="upload"]):not([data-vv10-nav]):not([data-route="profile"]){display:none!important}
+#desktopNav>*:not([data-route="home"]):not([data-vv22-friends]):not([data-route="upload"]):not([data-vv10-nav]):not([data-route="profile"]){display:none!important}
+#desktopNav>[data-route="home"]{order:1}#desktopNav>[data-vv22-friends]{order:2}#desktopNav>[data-route="upload"]{order:3}#desktopNav>[data-vv10-nav]{order:4}#desktopNav>[data-route="profile"]{order:5}
+#desktopNav{display:flex;flex-direction:column}#mobileNav [data-vv22-friends] svg{width:24px;height:24px}
+@media(max-width:780px){body #mobileNav.mobileNav{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;position:fixed;bottom:0;left:0;right:0;background:#090a0ef8;padding:9px 3px calc(8px + env(safe-area-inset-bottom));border-top:1px solid #292d38;z-index:45;gap:0!important}
+body #mobileNav.mobileNav>button:is([data-route="home"],[data-vv22-friends],[data-route="upload"],[data-vv10-nav],[data-route="profile"]){display:flex!important;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;max-width:none;padding:4px 0;flex:initial;color:#a7a8b3;font-size:10px;font-weight:750}
+body #mobileNav.mobileNav>button.on{color:#fff}#mobileNav>[data-route="home"]{order:1}#mobileNav>[data-vv22-friends]{order:2}#mobileNav>[data-route="upload"]{order:3}#mobileNav>[data-vv10-nav]{order:4;position:relative}#mobileNav>[data-route="profile"]{order:5}
+body #mobileNav.mobileNav>[data-route="upload"] svg{width:46px;height:31px;background:#f4f5f8;color:#101116;padding:5px;border-radius:10px;box-shadow:-4px 0 #35e5d1,4px 0 #ff416f}
+body #mobileNav.mobileNav>button[data-route="home"] svg,body #mobileNav.mobileNav>button[data-vv22-friends] svg,body #mobileNav.mobileNav>button[data-vv10-nav] svg,body #mobileNav.mobileNav>button[data-route="profile"] svg{width:25px;height:25px}
+body #mobileNav.mobileNav>button[data-route="profile"].on svg{color:#35e5d1}body.vv23-friends #mobileNav>[data-route="home"]{color:#a7a8b3}body.vv23-friends #mobileNav>[data-vv22-friends]{color:#fff}
+}
+.vv22-menu .vv23-subtitle{font-size:12px;color:#a4a5ad;padding:0 20px 8px}

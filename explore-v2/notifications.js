@@ -10,7 +10,16 @@ function imageUrl(value){try{const url=new URL(String(value));return url.protoco
 function avatar(p){const src=imageUrl(p?.avatar_url);return '<span class="notice-avatar">'+(src?'<img loading="lazy" decoding="async" alt="" src="'+safe(src)+'">':safe((p?.display_name||p?.username||'V').trim().slice(0,1).toUpperCase()))+'</span>'}
 function label(item){if(item.event_type==='follow')return 'started following you';if(item.event_type==='like')return 'liked your video';if(item.event_type==='comment')return 'commented on your video';return 'interacted with your content'}
 function status(text){el('noticesStatus').textContent=text}
-function updateUnread(){const n=S.items.filter(x=>!x.read_at).length;el('unreadCount').textContent=n? n+' unread in loaded notifications':'No unread loaded notifications';el('markAllRead').disabled=!n||!S.user}
+function updateUnread(){const n=S.items.filter(x=>!x.read_at).length;el('markAllRead').disabled=!n||!S.user}
+async function updateExactUnread(){
+ if(!S.user)return;
+ try{
+  const r=await S.sb.from('vv_notifications').select('id',{count:'exact',head:true}).eq('recipient_id',S.user.id).is('read_at',null);
+  if(r.error)throw r.error;
+  const n=r.count??0;el('unreadCount').textContent=n?n+' unread notifications':'All caught up — 0 unread notifications';
+  if(navigator.setAppBadge){if(n)navigator.setAppBadge(n).catch(()=>{});else navigator.clearAppBadge?.().catch(()=>{})}
+ }catch{el('unreadCount').textContent='Unread count temporarily unavailable'}
+}
 function render(){
  const rows=S.items.filter(x=>S.filter==='all'||S.filter==='unread'&&!x.read_at||S.filter===x.event_type);
  const frag=document.createDocumentFragment();
@@ -29,7 +38,7 @@ function render(){
  el('empty').hidden=rows.length>0||S.busy;
  el('moreNotices').hidden=S.ended||!S.user;
  el('moreNotices').disabled=S.busy;
- updateUnread();
+ updateUnread();updateExactUnread();
 }
 async function resolveProfiles(rows){
  const ids=[...new Set(rows.map(x=>x.actor_id).filter(uuid))].filter(id=>!S.profiles.has(id));if(!ids.length)return;

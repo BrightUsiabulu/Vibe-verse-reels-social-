@@ -39,4 +39,7 @@ if(b.dataset.route!==undefined||b.dataset.tab!==undefined)setTimeout(queue,0);
 },true);
 for(const id of ['view','mobileNav','desktopNav']){const n=$('#'+id);if(n)new MutationObserver(queue).observe(n,{childList:true,subtree:id==='view'})}
 window.addEventListener('hashchange',queue);queue();
+if(!document.querySelector('script[data-vv-unread]')){
+ const script=document.createElement('script');script.src='/notification-badge.js';script.defer=true;script.dataset.vvUnread='1';document.head.append(script)
+}
 })();

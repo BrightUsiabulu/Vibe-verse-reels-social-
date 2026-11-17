@@ -1,7 +1,7 @@
 (()=>{
 'use strict';
 const SUPABASE_URL='https://qngkwjhhykugjfkwoyam.supabase.co', KEY='sb_publishable__rfc1XG15o-nZ44zT2odpg_pvtQMxaM';
-const $=id=>document.getElementById(id), safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;':'&quot;',"'":'&#39;'}[c]));
+const $=id=>document.getElementById(id), safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const PAGE=12;let mediaObserver=null;
 const state={sb:null,posts:[],filter:'all',term:'',sort:'latest',selected:null,user:null,loading:false,queue:[],offset:{video:0,photo:0},ended:{video:false,photo:false}};
 const message=t=>{$('status').textContent=t};
@@ -28,7 +28,7 @@ function render(){
  else data.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
  const frag=document.createDocumentFragment();
  data.forEach(post=>{
-  const article=document.createElement('article');article.className='post';
+  const article=document.createElement('article');article.className='post';if(post.type==='video')article.dataset.videoId=post.id;
   const creator=post.creator?.display_name||post.creator?.username||'VibeVerse creator';
   const handle=post.creator?.username?'@'+post.creator.username:'';
   article.innerHTML='<div class="media">'+(post.type==='video'?videoMedia(post):photoMedia(post))+'<span class="type">'+(post.type==='video'?'VIDEO':'PHOTO')+'</span></div>'+
@@ -191,6 +191,29 @@ async function start(){
  $('reportForm').addEventListener('submit',report);
  $('refreshReports').addEventListener('click',moderate);
  await load();
+ const requested=new URLSearchParams(location.search).get('video');
+ if(requested&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requested)){
+  try{
+   const r=await state.sb.from('videos').select('id,user_id,video_url,thumbnail_url,caption,hashtags,visibility,created_at').eq('id',requested).eq('visibility','public').maybeSingle();
+   if(r.error)throw r.error;
+   if(!r.data){message('This video is not available publicly. Explore other public videos.')}
+   else{
+    const exists=state.posts.some(p=>p.id===requested&&p.type==='video');
+    if(!exists){
+     const p={...r.data,type:'video'};
+     const user=await state.sb.from('profiles').select('id,username,display_name').eq('id',p.user_id).maybeSingle();
+     if(!user.error)p.creator=user.data;
+     state.posts.unshift(p);
+    }
+    state.term='';state.filter='all';$('search').value='';
+    document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter==='all'));
+    render();
+    const card=[...$('posts').querySelectorAll('[data-video-id]')].find(n=>n.dataset.videoId===requested);
+    if(card){card.scrollIntoView({behavior:'smooth',block:'center'});card.style.outline='2px solid #7d6cdb'}
+    message('Showing the selected public video from your notification.');
+   }
+  }catch{message('Could not find that video. You can still explore public posts.')}
+ }
  if(await checkAdmin())await moderate();
 }
 start().catch(()=>message('Explore could not start. Please reload the page.'));

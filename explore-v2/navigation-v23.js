@@ -18,17 +18,20 @@ function liveExploreNav(){
  if(side&&!side.querySelector('[data-vv-explore-live]')){
   const a=document.createElement('a');a.href='/explore.html';a.dataset.vvExploreLive='1';a.textContent='✦ Explore public videos & photos';a.style.cssText='display:block;color:#70e4cc;text-decoration:none;font-weight:750;font-size:12px;margin:9px 0';side.prepend(a);
   const creators=document.createElement('a');creators.href='/creators.html';creators.textContent='✦ Discover creators';creators.style.cssText=a.style.cssText;side.prepend(creators);
+  const notices=document.createElement('a');notices.href='/notifications.html';notices.textContent='✦ Notification Inbox';notices.style.cssText=a.style.cssText;side.prepend(notices);
  }
  const settings=$('#view .settingsGrid');
  if(settings&&!settings.querySelector('[data-vv-explore-live]')){
   const a=document.createElement('a');a.href='/explore.html';a.dataset.vvExploreLive='1';a.textContent='Explore real videos & photos →';a.style.cssText='display:block;color:#70e4cc;font-weight:750;margin:10px 0';settings.append(a);
  }
 }
+function inbox(){location.assign('/notifications.html')}
 function wallet(){location.assign('/wallet.html')}
 function sync(){queued=false;if(location.hash==='#wallet'){wallet();return}nav();menu();liveExploreNav()}
 function queue(){if(!queued){queued=true;queueMicrotask(sync)}}
 document.addEventListener('click',e=>{const b=e.target.closest('button,a');if(!b)return;
 if(b.matches('[data-v12-nav],[data-vv22-menu="wallet"]')||b.matches('a[href="/#wallet"],a[href="#wallet"]')){e.preventDefault();e.stopImmediatePropagation();wallet();return}
+if(b.matches('.topRight [data-route="activity"],.mobileHeader [data-route="activity"],[data-vv22-menu="activity"]')){e.preventDefault();e.stopImmediatePropagation();inbox();return}
 if(b.matches('[data-vv22-friends]')){e.preventDefault();e.stopImmediatePropagation();const home=$('#mobileNav [data-route=home]')||$('#desktopNav [data-route=home]');home?.click();setTimeout(()=>{$('#view [data-tab="following"]')?.click();queue()},60);return}
 const a=b.dataset.vv22Menu, destinations={'explore':'/explore.html','tools':'/#plugins','edit-video':'/workshop.html'};
 if(destinations[a]){e.preventDefault();e.stopImmediatePropagation();$('.vv22-menu')?.close();if(a==='edit-video'||a==='explore'){location.assign(destinations[a]);return}const target=a==='explore'?'[data-route="explore"]':'[data-vv4-route="plugins"]';const original=$('#desktopNav '+target)||$('#mobileNav '+target);if(original){original.click()}else{location.assign(destinations[a]);location.reload()}return}

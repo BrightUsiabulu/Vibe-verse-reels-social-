@@ -1,0 +1,88 @@
+(()=>{'use strict';
+const SUPABASE_URL='https://qngkwjhhykugjfkwoyam.supabase.co',KEY='sb_publishable__rfc1XG15o-nZ44zT2odpg_pvtQMxaM',PAGE=30;
+const el=id=>document.getElementById(id);
+const S={sb:null,user:null,items:[],profiles:new Map(),filter:'all',next:0,ended:false,busy:false,channel:null,refreshTimer:null};
+function safe(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function uuid(v){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v||''))}
+function userLink(id){return uuid(id)?'/creators.html?id='+encodeURIComponent(id):'/creators.html'}
+function videoLink(id){return uuid(id)?'/explore.html?video='+encodeURIComponent(id):'/explore.html'}
+function imageUrl(value){try{const url=new URL(String(value));return url.protocol==='https:'?url.href:null}catch{return null}}
+function avatar(p){const src=imageUrl(p?.avatar_url);return '<span class="notice-avatar">'+(src?'<img loading="lazy" decoding="async" alt="" src="'+safe(src)+'">':safe((p?.display_name||p?.username||'V').trim().slice(0,1).toUpperCase()))+'</span>'}
+function label(item){if(item.event_type==='follow')return 'started following you';if(item.event_type==='like')return 'liked your video';if(item.event_type==='comment')return 'commented on your video';return 'interacted with your content'}
+function status(text){el('noticesStatus').textContent=text}
+function updateUnread(){const n=S.items.filter(x=>!x.read_at).length;el('unreadCount').textContent=n? n+' unread in loaded notifications':'No unread loaded notifications';el('markAllRead').disabled=!n||!S.user}
+function render(){
+ const rows=S.items.filter(x=>S.filter==='all'||S.filter==='unread'&&!x.read_at||S.filter===x.event_type);
+ const frag=document.createDocumentFragment();
+ for(const item of rows){
+  const p=S.profiles.get(item.actor_id)||null,name=p?.display_name||p?.username||'A creator';
+  const article=document.createElement('article');article.className='notice'+(!item.read_at?' unread':'');
+  const content=document.createElement('div');content.className='notice-content';
+  const text=document.createElement('p');const actor=document.createElement('a');actor.href=userLink(item.actor_id);actor.textContent=name;
+  text.append(actor,document.createTextNode(' '+label(item)));
+  const time=document.createElement('small');time.textContent=new Date(item.created_at).toLocaleString();const actions=document.createElement('div');actions.className='notice-actions';
+  const open=document.createElement('a');open.href=item.event_type==='follow'?userLink(item.actor_id):videoLink(item.video_id);open.textContent=item.event_type==='follow'?'View creator':'Find video';actions.append(open);
+  if(!item.read_at){const b=document.createElement('button');b.type='button';b.textContent='Mark read';b.addEventListener('click',()=>markRead([item.id],b));actions.append(b)}
+  content.append(text,time,actions);article.innerHTML=avatar(p);article.append(content);frag.append(article);
+ }
+ el('notices').replaceChildren(frag);
+ el('empty').hidden=rows.length>0||S.busy;
+ el('moreNotices').hidden=S.ended||!S.user;
+ el('moreNotices').disabled=S.busy;
+ updateUnread();
+}
+async function resolveProfiles(rows){
+ const ids=[...new Set(rows.map(x=>x.actor_id).filter(uuid))].filter(id=>!S.profiles.has(id));if(!ids.length)return;
+ const r=await S.sb.from('profiles').select('id,display_name,username,avatar_url').in('id',ids);
+ if(!r.error)for(const p of r.data||[])S.profiles.set(p.id,p);
+}
+async function refresh(){
+ if(S.busy||!S.user)return;
+ S.items=[];S.next=0;S.ended=false;await loadMore();
+}
+async function loadMore(){
+ if(!S.user||S.busy||S.ended)return;
+ S.busy=true;el('moreNotices').disabled=true;status('Loading your private notifications…');
+ try{
+  const r=await S.sb.from('vv_notifications').select('id,actor_id,event_type,video_id,comment_id,created_at,read_at').eq('recipient_id',S.user.id).order('created_at',{ascending:false}).range(S.next,S.next+PAGE-1);
+  if(r.error)throw r.error;
+  const rows=r.data||[];S.next+=rows.length;S.ended=rows.length<PAGE;
+  const byId=new Map(S.items.map(x=>[x.id,x]));for(const v of rows)byId.set(v.id,v);
+  S.items=[...byId.values()].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  await resolveProfiles(rows);
+  status(S.items.length?'Showing '+S.items.length+' real notifications.':'No account notifications yet.');
+ }catch(e){status('Could not load notifications. Sign in again or check account verification.')}
+ finally{S.busy=false;render()}
+}
+async function markRead(ids,button){
+ if(!S.user||!ids.length)return;
+ button.disabled=true;
+ const r=await S.sb.from('vv_notifications').update({read_at:new Date().toISOString()}).eq('recipient_id',S.user.id).in('id',ids);
+ if(r.error){button.disabled=false;status('Could not mark notifications read. Please retry.');return}
+ const set=new Set(ids);
+ for(const n of S.items)if(set.has(n.id))n.read_at=new Date().toISOString();
+ render();status(ids.length+' notification'+(ids.length===1?'':'s')+' marked read.');
+}
+function subscribe(){
+ if(!S.user)return;
+ if(S.channel){S.sb.removeChannel(S.channel);S.channel=null}
+ S.channel=S.sb.channel('vv_inbox_'+S.user.id).on('postgres_changes',{event:'INSERT',schema:'public',table:'vv_notifications',filter:'recipient_id=eq.'+S.user.id},()=>{
+  if(S.refreshTimer!==null)clearTimeout(S.refreshTimer);
+  S.refreshTimer=setTimeout(()=>{S.refreshTimer=null;refresh()},350);
+ }).subscribe(state=>{el('liveState').textContent=state==='SUBSCRIBED'?'Live updates on':state==='CHANNEL_ERROR'||state==='TIMED_OUT'?'Manual refresh available':'Connecting';});
+}
+async function start(){
+ if(!window.supabase?.createClient){status('Could not load VibeVerse sign-in services. Refresh and retry.');return}
+ S.sb=window.supabase.createClient(SUPABASE_URL,KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
+ const {data,error}=await S.sb.auth.getUser();
+ S.user=error?null:data?.user||null;el('accountLink').textContent=S.user?'Account':'Sign in';
+ for(const b of document.querySelectorAll('[data-filter]'))b.addEventListener('click',()=>{S.filter=b.dataset.filter;for(const v of document.querySelectorAll('[data-filter]'))v.classList.toggle('active',v===b);render()});
+ el('refreshNotices').addEventListener('click',refresh);
+ el('moreNotices').addEventListener('click',loadMore);
+ el('markAllRead').addEventListener('click',e=>markRead(S.items.filter(x=>!x.read_at).map(x=>x.id),e.currentTarget));
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.user)refresh()});
+ if(!S.user){status('Sign in to VibeVerse to see your private notifications.');el('liveState').textContent='Sign-in required';el('notices').innerHTML='<p class="notice-tip">You can sign in from the Account Center. Only your own account alerts will be displayed.</p>';el('empty').hidden=true;return}
+ await loadMore();subscribe();
+}
+start().catch(()=>status('Unable to load notifications. Please refresh.'));
+})();

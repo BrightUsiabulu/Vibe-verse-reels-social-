@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+<title>VibeVerse · Private AdSense Reporting</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui;background:#0d1020;color:#f4f5ff}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#28204d,#0d1020 70%);min-height:100vh}
+main{max-width:680px;padding:24px;margin:auto}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}
+h1{font-size:1.7rem}h2{font-size:1.1rem}.panel{background:#191d35;border:1px solid #393f68;border-radius:16px;padding:22px;margin:14px 0}
+p{color:#c4c7df;line-height:1.5}label{display:block;margin:15px 0 6px}input,select,button{font:inherit;padding:12px;border-radius:10px}
+input,select{background:#12162b;color:white;border:1px solid #666d94;width:100%}
+button{border:1px solid #7f75bf;background:#624ce4;color:white;cursor:pointer;margin:8px 8px 8px 0}
+button.secondary{background:#292d4d}button:disabled{opacity:.5;cursor:not-allowed}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.metric{background:#242743;padding:17px;border-radius:12px}.metric strong{display:block;font-size:1.5rem}
+small{color:#a9afca}#notice{white-space:pre-wrap}a{color:#bcb0ff}
+[hidden]{display:none!important}
+</style>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.min.js" integrity="sha384-gnyZit14c5lnGcarmA166QQjjJXpucw25ogZXuwH3HxxY904zHkBqmxVpelsPorb" crossorigin="anonymous"></script>
+<script defer src="/dashboard.js"></script>
+</head><body><main>
+<header><div><strong>VibeVerse</strong><small style="display:block">Private Revenue Administration</small></div><a href="https://vibeverse-bright-studio.vercel.app/">Main app</a></header>
+<h1>Google AdSense Reports</h1><p>This dashboard reads your verified publisher's data. Only an authorized VibeVerse administrator can access earnings. Never share access tokens or client secrets.</p>
+<div class="panel"><p id="notice" role="status">Checking setup...</p></div>
+<section id="login" class="panel" hidden><h2>Administrator sign-in</h2><form id="loginForm"><label>Email</label><input type="email" name="email" autocomplete="username" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><button type="submit">Sign in securely</button></form></section>
+<section id="reports" class="panel" hidden><h2>Private reports</h2><button id="connect">Authorize AdSense read-only access</button><button id="signout" class="secondary">Sign out</button>
+<label for="period">Reporting period</label><select id="period"><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="last7">Previous 7 days</option><option value="month" selected>Month to date</option></select><button id="refresh">Refresh real earnings</button>
+<div class="cards"><div class="metric"><small>Estimated revenue</small><strong id="money">—</strong></div><div class="metric"><small>Ad impressions</small><strong id="impressions">—</strong></div><div class="metric"><small>Ad clicks</small><strong id="clicks">—</strong></div><div class="metric"><small>Last fetched</small><strong id="updated" style="font-size:1rem">—</strong></div></div><small>Figures are returned from Google, not simulated. Revenue can be adjusted before final payment.</small></section>
+</main></body></html>

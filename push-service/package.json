@@ -1,0 +1,12 @@
+{
+  "name": "vibeverse-push-service",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "web-push": "3.6.7"
+  }
+}

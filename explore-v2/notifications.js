@@ -100,7 +100,7 @@ async function loadPreferences(){
  const result=await S.sb.from('vv_notification_preferences').select('follows,likes,comments,browser_alerts,push_enabled').eq('user_id',S.user.id).maybeSingle();
  el('notificationPreferences').hidden=false;
  if(result.error){el('prefsStatus').textContent='Could not load notification preferences. Retry from the Inbox.';return}
- if(result.data)S.prefs={follows:result.data.follows,likes:result.data.likes,comments:result.data.comments,browser_alerts:result.data.browser_alerts};
+ if(result.data)S.prefs={follows:result.data.follows,likes:result.data.likes,comments:result.data.comments,browser_alerts:result.data.browser_alerts,push_enabled:result.data.push_enabled===true};
  S.prefsLoaded=true;
  el('prefFollows').checked=S.prefs.follows;
  el('prefLikes').checked=S.prefs.likes;
@@ -167,6 +167,9 @@ async function checkPushSupport(){
   if(!existing.data){
     repair.hidden=false;
     msg.textContent='The browser has a push subscription but VibeVerse no longer has its record. Select Repair device to restore it.';
+  }else if(!S.prefs.push_enabled){
+    repair.hidden=false;
+    msg.textContent='This device is registered but background push is disabled in your account. Choose Repair device to enable it.';
   }else{
     test.hidden=false;
     msg.textContent='This device is registered. You can send a test notification to confirm the push gateway accepts it.';
@@ -209,7 +212,10 @@ async function repairPushDevice(){
   const values=device.subscription.toJSON();
   if(!values.keys?.p256dh||!values.keys?.auth)throw Error('The browser subscription is incomplete. Disable and re-enable push.');
   const save=await S.sb.from('vv_push_subscriptions').upsert({user_id:S.user.id,endpoint:device.subscription.endpoint,p256dh:values.keys.p256dh,auth_secret:values.keys.auth,device_label:'Current browser',updated_at:new Date().toISOString()},{onConflict:'user_id,endpoint'});
-  if(save.error)throw Error('VibeVerse could not restore this device. Try again.');
+  if(save.error)throw Error('VibeVerse could not restore this device. It might be associated with another account in this browser.');
+  const prefs=await S.sb.from('vv_notification_preferences').upsert({user_id:S.user.id,follows:S.prefs.follows,likes:S.prefs.likes,comments:S.prefs.comments,browser_alerts:S.prefs.browser_alerts,push_enabled:true,updated_at:new Date().toISOString()},{onConflict:'user_id'});
+  if(prefs.error)throw Error('Device record saved, but notification preferences could not be enabled.');
+  S.prefs.push_enabled=true;
   el('pushReadinessStatus').textContent='Device record restored. You can send a test notification.';
  }catch(e){el('pushReadinessStatus').textContent=String(e?.message||'Device repair failed.')}
  finally{b.disabled=false;await checkPushSupport()}
@@ -222,14 +228,16 @@ async function testPushDevice(){
   const session=await S.sb.auth.getSession();
   const access=session.data?.session?.access_token;
   if(!access)throw Error('Sign in again to send a test notification.');
+  const stored=await S.sb.from('vv_push_subscriptions').select('id').eq('user_id',S.user.id).eq('endpoint',device.subscription.endpoint).maybeSingle();
+  if(stored.error||!stored.data?.id)throw Error('Device record missing. Choose Repair device first.');
   el('pushReadinessStatus').textContent='Sending the test notification to the push gateway…';
   const response=await fetch('https://qngkwjhhykugjfkwoyam.supabase.co/functions/v1/vv-web-push?action=test',{
    method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+access},
-   body:JSON.stringify({endpoint:device.subscription.endpoint})
+   body:JSON.stringify({subscription_id:stored.data.id})
   });
   const result=await response.json().catch(()=>({}));
   if(!response.ok)throw Error(result.error||'The push test failed.');
-  el('pushReadinessStatus').textContent=result.acceptedByPushService?'The push gateway accepted the test. Check your device notifications; delivery to the screen is not yet verified.':'No test notification was sent.';
+  el('pushReadinessStatus').textContent=result.accepted?'The push gateway accepted the test. Check your device notifications; delivery to the screen is not yet verified.':'No test notification was sent.';
  }catch(e){el('pushReadinessStatus').textContent=String(e?.message||'The push test failed.')}
  finally{b.disabled=false}
 }

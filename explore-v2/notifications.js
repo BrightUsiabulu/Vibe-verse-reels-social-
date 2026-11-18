@@ -153,15 +153,25 @@ async function currentDevice(){
  return r?{registration:r,subscription:await r.pushManager.getSubscription()}:null;
 }
 async function checkPushSupport(){
- const msg=el('pushReadinessStatus'),enable=el('preparePushDevice'),disable=el('disablePushDevice');
- disable.hidden=true;enable.disabled=true;
+ const msg=el('pushReadinessStatus'),enable=el('preparePushDevice'),disable=el('disablePushDevice'),repair=el('repairPushDevice'),test=el('testPushDevice');
+ disable.hidden=true;repair.hidden=true;test.hidden=true;enable.disabled=true;
  if(!window.isSecureContext||!('PushManager' in window)||!('serviceWorker' in navigator)||!('Notification' in window)){
   msg.textContent='This browser does not support background push. The regular Inbox is still available.';return false;
  }
  if(Notification.permission==='denied'){msg.textContent='Notifications are blocked by your browser. You may change permissions in browser settings.';return false}
  if(!S.user){msg.textContent='Sign in to VibeVerse first to enable device push notifications.';return true}
  try{const found=await currentDevice();if(found?.subscription){
-  disable.hidden=false;msg.textContent='This device is subscribed. Background alerts depend on your saved account preferences.';return true;
+  const existing=await S.sb.from('vv_push_subscriptions').select('id').eq('user_id',S.user.id).eq('endpoint',found.subscription.endpoint).maybeSingle();
+  disable.hidden=false;
+  if(existing.error){msg.textContent='Could not verify the device on the server. Try again shortly.';return true}
+  if(!existing.data){
+    repair.hidden=false;
+    msg.textContent='The browser has a push subscription but VibeVerse no longer has its record. Select Repair device to restore it.';
+  }else{
+    test.hidden=false;
+    msg.textContent='This device is registered. You can send a test notification to confirm the push gateway accepts it.';
+  }
+  return true;
  }}catch{}
  enable.disabled=false;msg.textContent='This browser supports push. Select Enable background push to approve and register this device.';return true;
 }
@@ -190,6 +200,38 @@ async function preparePushDevice(){
   el('pushReadinessStatus').textContent='Background push enabled for this device. Eligible new activity can trigger a notification.';
  }catch(e){el('pushReadinessStatus').textContent=String(e?.message||'Could not register this device.')}
  finally{await checkPushSupport()}
+}
+async function repairPushDevice(){
+ if(!S.user||!('serviceWorker' in navigator))return;
+ const b=el('repairPushDevice');b.disabled=true;
+ try{
+  const device=await currentDevice();if(!device?.subscription)throw Error('No browser subscription to repair.');
+  const values=device.subscription.toJSON();
+  if(!values.keys?.p256dh||!values.keys?.auth)throw Error('The browser subscription is incomplete. Disable and re-enable push.');
+  const save=await S.sb.from('vv_push_subscriptions').upsert({user_id:S.user.id,endpoint:device.subscription.endpoint,p256dh:values.keys.p256dh,auth_secret:values.keys.auth,device_label:'Current browser',updated_at:new Date().toISOString()},{onConflict:'user_id,endpoint'});
+  if(save.error)throw Error('VibeVerse could not restore this device. Try again.');
+  el('pushReadinessStatus').textContent='Device record restored. You can send a test notification.';
+ }catch(e){el('pushReadinessStatus').textContent=String(e?.message||'Device repair failed.')}
+ finally{b.disabled=false;await checkPushSupport()}
+}
+async function testPushDevice(){
+ if(!S.user||!('serviceWorker' in navigator))return;
+ const b=el('testPushDevice');b.disabled=true;
+ try{
+  const device=await currentDevice();if(!device?.subscription)throw Error('This browser is not subscribed.');
+  const session=await S.sb.auth.getSession();
+  const access=session.data?.session?.access_token;
+  if(!access)throw Error('Sign in again to send a test notification.');
+  el('pushReadinessStatus').textContent='Sending the test notification to the push gateway…';
+  const response=await fetch('https://qngkwjhhykugjfkwoyam.supabase.co/functions/v1/vv-web-push?action=test',{
+   method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+access},
+   body:JSON.stringify({endpoint:device.subscription.endpoint})
+  });
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok)throw Error(result.error||'The push test failed.');
+  el('pushReadinessStatus').textContent=result.acceptedByPushService?'The push gateway accepted the test. Check your device notifications; delivery to the screen is not yet verified.':'No test notification was sent.';
+ }catch(e){el('pushReadinessStatus').textContent=String(e?.message||'The push test failed.')}
+ finally{b.disabled=false}
 }
 async function disablePushDevice(){
  if(!S.user||!('serviceWorker' in navigator))return;
@@ -232,6 +274,8 @@ async function start(){
  el('checkPushSupport').addEventListener('click',checkPushSupport);
  el('preparePushDevice').addEventListener('click',preparePushDevice);
  el('disablePushDevice').addEventListener('click',disablePushDevice);
+ el('repairPushDevice').addEventListener('click',repairPushDevice);
+ el('testPushDevice').addEventListener('click',testPushDevice);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.user)refresh()});
  if(!S.user){status('Sign in to VibeVerse to see your private notifications.');el('liveState').textContent='Sign-in required';el('notices').innerHTML='<p class="notice-tip">You can sign in from the Account Center. Only your own account alerts will be displayed.</p>';el('empty').hidden=true;return}
  await Promise.all([loadMore(),loadPreferences()]);await checkPushSupport();subscribe();

@@ -7,7 +7,7 @@ self.addEventListener('push',event=>{
   try{if(event.data)payload=event.data.json()}catch{payload={}}
   const kind=String(payload.type||'activity').toLowerCase();
   const known=['follow','like','comment'].includes(kind);
-  const title=known?'VibeVerse '+(kind==='follow'?'Follower':kind==='like'?'Like':'Comment'):'VibeVerse notification';
+  const title=kind==='test'?'VibeVerse test notification':known?'VibeVerse '+(kind==='follow'?'Follower':kind==='like'?'Like':'Comment'):'VibeVerse notification';
   const body='You have new activity in your VibeVerse Inbox.';
   const url='/notifications.html';
   await self.registration.showNotification(title,{body,icon:'/icon-192.png',badge:'/icon-192.png',tag:'vv-push-'+String(payload.id||'activity').slice(0,64),data:{url}});

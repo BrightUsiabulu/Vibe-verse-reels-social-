@@ -1,7 +1,7 @@
 (()=>{'use strict';
 const SUPABASE_URL='https://qngkwjhhykugjfkwoyam.supabase.co',KEY='sb_publishable__rfc1XG15o-nZ44zT2odpg_pvtQMxaM',PAGE=30;
 const el=id=>document.getElementById(id);
-const S={sb:null,user:null,items:[],profiles:new Map(),filter:'all',next:0,ended:false,busy:false,channel:null,refreshTimer:null};
+const S={sb:null,user:null,items:[],profiles:new Map(),filter:'all',next:0,ended:false,busy:false,channel:null,refreshTimer:null,prefs:{follows:true,likes:true,comments:true,browser_alerts:false},prefsLoaded:false};
 function safe(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function uuid(v){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v||''))}
 function userLink(id){return uuid(id)?'/creators.html?id='+encodeURIComponent(id):'/creators.html'}
@@ -95,10 +95,59 @@ async function markRead(ids,button){
  for(const n of S.items)if(set.has(n.id))n.read_at=new Date().toISOString();
  render();status(ids.length+' notification'+(ids.length===1?'':'s')+' marked read.');
 }
+async function loadPreferences(){
+ if(!S.user)return;
+ const result=await S.sb.from('vv_notification_preferences').select('follows,likes,comments,browser_alerts').eq('user_id',S.user.id).maybeSingle();
+ el('notificationPreferences').hidden=false;
+ if(result.error){el('prefsStatus').textContent='Could not load notification preferences. Retry from the Inbox.';return}
+ if(result.data)S.prefs={follows:result.data.follows,likes:result.data.likes,comments:result.data.comments,browser_alerts:result.data.browser_alerts};
+ S.prefsLoaded=true;
+ el('prefFollows').checked=S.prefs.follows;
+ el('prefLikes').checked=S.prefs.likes;
+ el('prefComments').checked=S.prefs.comments;
+ el('prefBrowser').checked=S.prefs.browser_alerts;
+}
+async function savePreferences(){
+ if(!S.user)return;
+ const button=el('savePrefs');
+ const browserChoice=el('prefBrowser').checked;
+ let allowed=browserChoice;
+ if(browserChoice){
+  if(!('Notification' in window)){allowed=false;el('prefsStatus').textContent='Browser notifications are not supported here. You can still save the other preferences.'}
+  else if(Notification.permission!=='granted'){
+   try{allowed=(await Notification.requestPermission())==='granted'}catch{allowed=false}
+   if(!allowed)el('prefsStatus').textContent='Browser notifications were not permitted. Other preferences can still be saved.';
+  }
+ }
+ el('prefBrowser').checked=allowed;
+ const row={user_id:S.user.id,follows:el('prefFollows').checked,likes:el('prefLikes').checked,comments:el('prefComments').checked,browser_alerts:allowed,updated_at:new Date().toISOString()};
+ button.disabled=true;
+ try{
+  const r=await S.sb.from('vv_notification_preferences').upsert(row,{onConflict:'user_id'});
+  if(r.error)throw r.error;
+  S.prefs={follows:row.follows,likes:row.likes,comments:row.comments,browser_alerts:row.browser_alerts};
+  S.prefsLoaded=true;
+  el('prefsStatus').textContent='Preferences saved for your VibeVerse account.';
+ }catch{el('prefsStatus').textContent='Could not save preferences. Please retry.'}
+ finally{button.disabled=false}
+}
+function alertIfAllowed(item){
+ if(!item||!S.user||!S.prefsLoaded||!S.prefs.browser_alerts||document.visibilityState!=='hidden')return;
+ const accepted={follow:S.prefs.follows,like:S.prefs.likes,comment:S.prefs.comments};
+ if(accepted[item.event_type]!==true||!('Notification' in window)||Notification.permission!=='granted')return;
+ try{
+  const title='New VibeVerse '+(item.event_type==='follow'?'follower':item.event_type==='like'?'like':'comment');
+  const message=item.event_type==='follow'?'Someone followed your profile':'You received a new interaction';
+  const n=new Notification(title,{body:message,tag:'vv-alert-'+item.id});
+  n.onclick=()=>{window.focus();location.href=item.event_type==='follow'?'/creators.html':'/notifications.html';n.close()};
+ }catch{ /* Some mobile browsers do not support in-page Notification construction. */ }
+}
+
 function subscribe(){
  if(!S.user)return;
  if(S.channel){S.sb.removeChannel(S.channel);S.channel=null}
- S.channel=S.sb.channel('vv_inbox_'+S.user.id).on('postgres_changes',{event:'INSERT',schema:'public',table:'vv_notifications',filter:'recipient_id=eq.'+S.user.id},()=>{
+ S.channel=S.sb.channel('vv_inbox_'+S.user.id).on('postgres_changes',{event:'INSERT',schema:'public',table:'vv_notifications',filter:'recipient_id=eq.'+S.user.id},payload=>{
+  alertIfAllowed(payload.new);
   if(S.refreshTimer!==null)clearTimeout(S.refreshTimer);
   S.refreshTimer=setTimeout(()=>{S.refreshTimer=null;refresh()},350);
  }).subscribe(state=>{el('liveState').textContent=state==='SUBSCRIBED'?'Live updates on':state==='CHANNEL_ERROR'||state==='TIMED_OUT'?'Manual refresh available':'Connecting';});
@@ -112,9 +161,11 @@ async function start(){
  el('refreshNotices').addEventListener('click',refresh);
  el('moreNotices').addEventListener('click',loadMore);
  el('markAllRead').addEventListener('click',e=>markAllUnread(e.currentTarget));
+ el('togglePrefs').addEventListener('click',()=>{const panel=el('prefsContent');panel.hidden=!panel.hidden;el('togglePrefs').setAttribute('aria-expanded',String(!panel.hidden))});
+ el('savePrefs').addEventListener('click',savePreferences);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.user)refresh()});
  if(!S.user){status('Sign in to VibeVerse to see your private notifications.');el('liveState').textContent='Sign-in required';el('notices').innerHTML='<p class="notice-tip">You can sign in from the Account Center. Only your own account alerts will be displayed.</p>';el('empty').hidden=true;return}
- await loadMore();subscribe();
+ await Promise.all([loadMore(),loadPreferences()]);subscribe();
 }
 start().catch(()=>status('Unable to load notifications. Please refresh.'));
 })();

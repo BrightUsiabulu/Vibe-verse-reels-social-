@@ -143,6 +143,35 @@ function alertIfAllowed(item){
  }catch{ /* Some mobile browsers do not support in-page Notification construction. */ }
 }
 
+async function checkPushSupport(){
+ const label=el('pushReadinessStatus'),button=el('preparePushDevice');
+ const secure=window.isSecureContext,worker=('serviceWorker' in navigator),push=('PushManager' in window),notice=('Notification' in window);
+ if(!secure||!worker||!push||!notice){
+  button.disabled=true;label.textContent='Background push is not supported in this browser or security context. The regular VibeVerse Inbox remains available.';return false;
+ }
+ if(Notification.permission==='denied'){
+  button.disabled=true;label.textContent='Browser notifications are blocked. You can still use the Inbox; notification permission must be changed in browser settings.';return false;
+ }
+ button.disabled=!S.user;
+ label.textContent=S.user?'This device supports push registration. You can prepare its worker, but background delivery is not configured yet.':'This device supports push, but you need to sign in before preparing it.';
+ return true;
+}
+async function preparePushDevice(){
+ if(!S.user)return;
+ const supported=await checkPushSupport();if(!supported)return;
+ const button=el('preparePushDevice');button.disabled=true;
+ try{
+  const registration=await navigator.serviceWorker.register('/push-worker.js',{scope:'/push/'});
+  if(registration.active||registration.installing||registration.waiting){
+   el('pushReadinessStatus').textContent='Device worker prepared successfully. Push subscriptions are not active yet; your VibeVerse Inbox still works.';
+  }else{
+   el('pushReadinessStatus').textContent='Device worker registered. It may finish installing shortly; push delivery is not active.';
+  }
+ }catch(e){
+  el('pushReadinessStatus').textContent='Device preparation failed. Your browser may restrict service worker registration.';
+ }finally{button.disabled=false}
+}
+
 function subscribe(){
  if(!S.user)return;
  if(S.channel){S.sb.removeChannel(S.channel);S.channel=null}
@@ -163,9 +192,11 @@ async function start(){
  el('markAllRead').addEventListener('click',e=>markAllUnread(e.currentTarget));
  el('togglePrefs').addEventListener('click',()=>{const panel=el('prefsContent');panel.hidden=!panel.hidden;el('togglePrefs').setAttribute('aria-expanded',String(!panel.hidden))});
  el('savePrefs').addEventListener('click',savePreferences);
+ el('checkPushSupport').addEventListener('click',checkPushSupport);
+ el('preparePushDevice').addEventListener('click',preparePushDevice);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.user)refresh()});
  if(!S.user){status('Sign in to VibeVerse to see your private notifications.');el('liveState').textContent='Sign-in required';el('notices').innerHTML='<p class="notice-tip">You can sign in from the Account Center. Only your own account alerts will be displayed.</p>';el('empty').hidden=true;return}
- await Promise.all([loadMore(),loadPreferences()]);subscribe();
+ await Promise.all([loadMore(),loadPreferences()]);await checkPushSupport();subscribe();
 }
 start().catch(()=>status('Unable to load notifications. Please refresh.'));
 })();

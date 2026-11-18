@@ -10,7 +10,7 @@ function imageUrl(value){try{const url=new URL(String(value));return url.protoco
 function avatar(p){const src=imageUrl(p?.avatar_url);return '<span class="notice-avatar">'+(src?'<img loading="lazy" decoding="async" alt="" src="'+safe(src)+'">':safe((p?.display_name||p?.username||'V').trim().slice(0,1).toUpperCase()))+'</span>'}
 function label(item){if(item.event_type==='follow')return 'started following you';if(item.event_type==='like')return 'liked your video';if(item.event_type==='comment')return 'commented on your video';return 'interacted with your content'}
 function status(text){el('noticesStatus').textContent=text}
-function updateUnread(){const n=S.items.filter(x=>!x.read_at).length;el('markAllRead').disabled=!n||!S.user}
+function updateUnread(){el('markAllRead').disabled=!S.user}
 async function updateExactUnread(){
  if(!S.user)return;
  try{
@@ -63,6 +63,29 @@ async function loadMore(){
  }catch(e){status('Could not load notifications. Sign in again or check account verification.')}
  finally{S.busy=false;render()}
 }
+async function markAllUnread(button){
+ if(!S.user)return;
+ button.disabled=true;status('Marking unread notifications as read…');
+ let changed=0,attempts=0;
+ try{
+  while(attempts++<25){
+   const read=await S.sb.from('vv_notifications').select('id').eq('recipient_id',S.user.id).is('read_at',null).limit(80);
+   if(read.error)throw read.error;
+   const ids=(read.data||[]).map(n=>n.id);
+   if(!ids.length)break;
+   const stamp=new Date().toISOString();
+   const updated=await S.sb.from('vv_notifications').update({read_at:stamp}).eq('recipient_id',S.user.id).in('id',ids).is('read_at',null);
+   if(updated.error)throw updated.error;
+   changed+=ids.length;
+  }
+  await refresh();
+  const result=await S.sb.from('vv_notifications').select('id',{count:'exact',head:true}).eq('recipient_id',S.user.id).is('read_at',null);
+  if(result.error)throw result.error;
+  status(result.count?'Marked '+changed+' notifications read; '+result.count+' remain.':'All notifications marked read.');
+ }catch{
+  status('Could not finish marking all unread notifications. Refresh and retry.');
+ }finally{button.disabled=false;updateExactUnread()}
+}
 async function markRead(ids,button){
  if(!S.user||!ids.length)return;
  button.disabled=true;
@@ -88,7 +111,7 @@ async function start(){
  for(const b of document.querySelectorAll('[data-filter]'))b.addEventListener('click',()=>{S.filter=b.dataset.filter;for(const v of document.querySelectorAll('[data-filter]'))v.classList.toggle('active',v===b);render()});
  el('refreshNotices').addEventListener('click',refresh);
  el('moreNotices').addEventListener('click',loadMore);
- el('markAllRead').addEventListener('click',e=>markRead(S.items.filter(x=>!x.read_at).map(x=>x.id),e.currentTarget));
+ el('markAllRead').addEventListener('click',e=>markAllUnread(e.currentTarget));
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.user)refresh()});
  if(!S.user){status('Sign in to VibeVerse to see your private notifications.');el('liveState').textContent='Sign-in required';el('notices').innerHTML='<p class="notice-tip">You can sign in from the Account Center. Only your own account alerts will be displayed.</p>';el('empty').hidden=true;return}
  await loadMore();subscribe();

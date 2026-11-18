@@ -2,7 +2,7 @@
 /* Isolated VibeVerse push worker. Delivery is disabled until a trusted sender and VAPID keys are configured. */
 self.addEventListener('push',event=>{
  event.waitUntil((async()=>{
-  if(!(self.Notification&&self.registration&&self.registration.showNotification))return;
+  if(!(self.registration&&typeof self.registration.showNotification==='function'))return;
   let payload={};
   try{if(event.data)payload=event.data.json()}catch{payload={}}
   const kind=String(payload.type||'activity').toLowerCase();

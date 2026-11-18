@@ -1,5 +1,5 @@
 'use strict';
-/* Isolated VibeVerse push worker. Delivery is disabled until a trusted sender and VAPID keys are configured. */
+/* Isolated VibeVerse push worker for explicitly subscribed devices; the offline worker is unchanged. */
 self.addEventListener('push',event=>{
  event.waitUntil((async()=>{
   if(!(self.registration&&typeof self.registration.showNotification==='function'))return;

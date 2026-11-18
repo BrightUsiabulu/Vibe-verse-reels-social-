@@ -1,7 +1,7 @@
 (()=>{'use strict';
 const SUPABASE_URL='https://qngkwjhhykugjfkwoyam.supabase.co',KEY='sb_publishable__rfc1XG15o-nZ44zT2odpg_pvtQMxaM',PAGE=30;
 const el=id=>document.getElementById(id);
-const S={sb:null,user:null,items:[],profiles:new Map(),filter:'all',next:0,ended:false,busy:false,channel:null,refreshTimer:null,prefs:{follows:true,likes:true,comments:true,browser_alerts:false},prefsLoaded:false};
+const S={sb:null,user:null,items:[],profiles:new Map(),filter:'all',next:0,ended:false,busy:false,channel:null,refreshTimer:null,prefs:{follows:true,likes:true,comments:true,browser_alerts:false,push_enabled:false},prefsLoaded:false};
 function safe(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function uuid(v){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v||''))}
 function userLink(id){return uuid(id)?'/creators.html?id='+encodeURIComponent(id):'/creators.html'}
@@ -97,7 +97,7 @@ async function markRead(ids,button){
 }
 async function loadPreferences(){
  if(!S.user)return;
- const result=await S.sb.from('vv_notification_preferences').select('follows,likes,comments,browser_alerts').eq('user_id',S.user.id).maybeSingle();
+ const result=await S.sb.from('vv_notification_preferences').select('follows,likes,comments,browser_alerts,push_enabled').eq('user_id',S.user.id).maybeSingle();
  el('notificationPreferences').hidden=false;
  if(result.error){el('prefsStatus').textContent='Could not load notification preferences. Retry from the Inbox.';return}
  if(result.data)S.prefs={follows:result.data.follows,likes:result.data.likes,comments:result.data.comments,browser_alerts:result.data.browser_alerts};
@@ -120,12 +120,12 @@ async function savePreferences(){
   }
  }
  el('prefBrowser').checked=allowed;
- const row={user_id:S.user.id,follows:el('prefFollows').checked,likes:el('prefLikes').checked,comments:el('prefComments').checked,browser_alerts:allowed,updated_at:new Date().toISOString()};
+ const row={user_id:S.user.id,follows:el('prefFollows').checked,likes:el('prefLikes').checked,comments:el('prefComments').checked,browser_alerts:allowed,push_enabled:!!S.prefs.push_enabled,updated_at:new Date().toISOString()};
  button.disabled=true;
  try{
   const r=await S.sb.from('vv_notification_preferences').upsert(row,{onConflict:'user_id'});
   if(r.error)throw r.error;
-  S.prefs={follows:row.follows,likes:row.likes,comments:row.comments,browser_alerts:row.browser_alerts};
+  S.prefs={follows:row.follows,likes:row.likes,comments:row.comments,browser_alerts:row.browser_alerts,push_enabled:row.push_enabled};
   S.prefsLoaded=true;
   el('prefsStatus').textContent='Preferences saved for your VibeVerse account.';
  }catch{el('prefsStatus').textContent='Could not save preferences. Please retry.'}
@@ -143,35 +143,72 @@ function alertIfAllowed(item){
  }catch{ /* Some mobile browsers do not support in-page Notification construction. */ }
 }
 
+const PUSH_PUBLIC_KEY_URL='https://qngkwjhhykugjfkwoyam.supabase.co/functions/v1/vv-web-push?action=key';
+function decodePushKey(value){
+ const b=String(value).replace(/-/g,'+').replace(/_/g,'/');
+ return Uint8Array.from(atob(b.padEnd(Math.ceil(b.length/4)*4,'=')),ch=>ch.charCodeAt(0));
+}
+async function currentDevice(){
+ const r=await navigator.serviceWorker.getRegistration('/push/');
+ return r?{registration:r,subscription:await r.pushManager.getSubscription()}:null;
+}
 async function checkPushSupport(){
- const label=el('pushReadinessStatus'),button=el('preparePushDevice');
- const secure=window.isSecureContext,worker=('serviceWorker' in navigator),push=('PushManager' in window),notice=('Notification' in window);
- if(!secure||!worker||!push||!notice){
-  button.disabled=true;label.textContent='Background push is not supported in this browser or security context. The regular VibeVerse Inbox remains available.';return false;
+ const msg=el('pushReadinessStatus'),enable=el('preparePushDevice'),disable=el('disablePushDevice');
+ disable.hidden=true;enable.disabled=true;
+ if(!window.isSecureContext||!('PushManager' in window)||!('serviceWorker' in navigator)||!('Notification' in window)){
+  msg.textContent='This browser does not support background push. The regular Inbox is still available.';return false;
  }
- if(Notification.permission==='denied'){
-  button.disabled=true;label.textContent='Browser notifications are blocked. You can still use the Inbox; notification permission must be changed in browser settings.';return false;
- }
- button.disabled=!S.user;
- label.textContent=S.user?'This device supports push registration. You can prepare its worker, but background delivery is not configured yet.':'This device supports push, but you need to sign in before preparing it.';
- return true;
+ if(Notification.permission==='denied'){msg.textContent='Notifications are blocked by your browser. You may change permissions in browser settings.';return false}
+ if(!S.user){msg.textContent='Sign in to VibeVerse first to enable device push notifications.';return true}
+ try{const found=await currentDevice();if(found?.subscription){
+  disable.hidden=false;msg.textContent='This device is subscribed. Background alerts depend on your saved account preferences.';return true;
+ }}catch{}
+ enable.disabled=false;msg.textContent='This browser supports push. Select Enable background push to approve and register this device.';return true;
 }
 async function preparePushDevice(){
- if(!S.user)return;
- const supported=await checkPushSupport();if(!supported)return;
- const button=el('preparePushDevice');button.disabled=true;
+ if(!S.user||!window.isSecureContext||!('PushManager' in window)||!('serviceWorker' in navigator)||!('Notification' in window))return;
+ const b=el('preparePushDevice');b.disabled=true;
  try{
-  const registration=await navigator.serviceWorker.register('/push-worker.js',{scope:'/push/'});
-  if(registration.active||registration.installing||registration.waiting){
-   el('pushReadinessStatus').textContent='Device worker prepared successfully. Push subscriptions are not active yet; your VibeVerse Inbox still works.';
-  }else{
-   el('pushReadinessStatus').textContent='Device worker registered. It may finish installing shortly; push delivery is not active.';
+  if(Notification.permission!=='granted'){
+   const permission=await Notification.requestPermission();
+   if(permission!=='granted')throw Error('Notification permission was not granted.');
   }
- }catch(e){
-  el('pushReadinessStatus').textContent='Device preparation failed. Your browser may restrict service worker registration.';
- }finally{button.disabled=false}
+  el('pushReadinessStatus').textContent='Registering this device…';
+  const response=await fetch(PUSH_PUBLIC_KEY_URL,{cache:'no-store'});
+  if(!response.ok)throw Error('The push service is temporarily unavailable.');
+  const body=await response.json();if(!body.ready||!body.publicKey)throw Error('The push service is not configured.');
+  const registration=await navigator.serviceWorker.register('/push-worker.js',{scope:'/push/'});
+  let subscription=await registration.pushManager.getSubscription();
+  if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:decodePushKey(body.publicKey)});
+  const values=subscription.toJSON();
+  if(!subscription.endpoint||!values.keys?.p256dh||!values.keys?.auth)throw Error('Incomplete device subscription returned.');
+  const saved=await S.sb.from('vv_push_subscriptions').upsert({user_id:S.user.id,endpoint:subscription.endpoint,p256dh:values.keys.p256dh,auth_secret:values.keys.auth,device_label:'Current browser',updated_at:new Date().toISOString()},{onConflict:'user_id,endpoint'});
+  if(saved.error)throw Error('The secure database could not save the device. Retry.');
+  const update=await S.sb.from('vv_notification_preferences').upsert({user_id:S.user.id,follows:S.prefs.follows,likes:S.prefs.likes,comments:S.prefs.comments,browser_alerts:S.prefs.browser_alerts,push_enabled:true,updated_at:new Date().toISOString()},{onConflict:'user_id'});
+  if(update.error)throw Error('Could not enable push in account preferences.');
+  S.prefs.push_enabled=true;
+  el('pushReadinessStatus').textContent='Background push enabled for this device. Eligible new activity can trigger a notification.';
+ }catch(e){el('pushReadinessStatus').textContent=String(e?.message||'Could not register this device.')}
+ finally{await checkPushSupport()}
 }
-
+async function disablePushDevice(){
+ if(!S.user||!('serviceWorker' in navigator))return;
+ const b=el('disablePushDevice');b.disabled=true;
+ try{
+  const device=await currentDevice();if(!device?.subscription)throw Error('No device subscription found.');
+  const endpoint=device.subscription.endpoint;
+  if(!await device.subscription.unsubscribe())throw Error('The browser could not unsubscribe this device.');
+  const del=await S.sb.from('vv_push_subscriptions').delete().eq('user_id',S.user.id).eq('endpoint',endpoint);
+  if(del.error)throw Error('Could not clear the server subscription.');
+  const other=await S.sb.from('vv_push_subscriptions').select('id',{count:'exact',head:true}).eq('user_id',S.user.id);
+  if(!other.error&&other.count===0){
+   const pref=await S.sb.from('vv_notification_preferences').update({push_enabled:false,updated_at:new Date().toISOString()}).eq('user_id',S.user.id);
+   if(!pref.error)S.prefs.push_enabled=false;
+  }
+  el('pushReadinessStatus').textContent='Push disabled for this device. Your Inbox still works.';
+ }catch(e){el('pushReadinessStatus').textContent=String(e?.message||'Could not disable push.')}
+ finally{b.disabled=false;await checkPushSupport()}
+}
 function subscribe(){
  if(!S.user)return;
  if(S.channel){S.sb.removeChannel(S.channel);S.channel=null}
@@ -194,6 +231,7 @@ async function start(){
  el('savePrefs').addEventListener('click',savePreferences);
  el('checkPushSupport').addEventListener('click',checkPushSupport);
  el('preparePushDevice').addEventListener('click',preparePushDevice);
+ el('disablePushDevice').addEventListener('click',disablePushDevice);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.user)refresh()});
  if(!S.user){status('Sign in to VibeVerse to see your private notifications.');el('liveState').textContent='Sign-in required';el('notices').innerHTML='<p class="notice-tip">You can sign in from the Account Center. Only your own account alerts will be displayed.</p>';el('empty').hidden=true;return}
  await Promise.all([loadMore(),loadPreferences()]);await checkPushSupport();subscribe();
